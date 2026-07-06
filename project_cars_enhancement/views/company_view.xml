@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- vehicle.platform -->
+    <record id="cpm_validation_form_view" model="ir.ui.view">
+        <field name="name">cpm.validation.form</field>
+        <field name="model">cpm.validation</field>
+        <field name="arch" type="xml">
+            <form string="CPM Validation">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name" required="1"/>
+                            <field name="code" required="1"/>
+                        </group>
+                        <group>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="cpm_validationtree_view" model="ir.ui.view">
+        <field name="name">cpm.validation.tree</field>
+        <field name="model">cpm.validation</field>
+        <field name="arch" type="xml">
+            <list string="CPM Validation">
+                <field name="name"/>
+                <field name="code"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="cpm_validation_action" model="ir.actions.act_window">
+        <field name="name">CPM Validation</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">cpm.validation</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" eval="False"/>
+    </record>
+
+    <menuitem id="menu_cpm_validation"
+              name="CPM Validation"
+              action="cpm_validation_action"
+              parent="base.menu_users" sequence="155"/>
+
+    <record id="res_company_view_form_inherited" model="ir.ui.view">
+        <field name="name">res.company.view.form</field>
+        <field name="model">res.company</field>
+        <field name="inherit_id" ref="base.view_company_form"/>
+        <field name="priority">50</field>
+        <field name="arch" type="xml">
+            <field name="vat" position="after">
+                <field name="cpm_validation_ids" widget="many2many_tags"/>
+            </field>
+        </field>
+    </record>
+</odoo>

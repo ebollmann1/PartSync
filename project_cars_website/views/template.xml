@@ -1,0 +1,1483 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <template id="search_category_list" name="Search Categories">
+        <t t-set="partsync_eCommerce_filtering" t-value="products and products._get_pef()"/>
+        <t t-if="partsync_eCommerce_filtering">
+            <button class="btn btn-primary search_category custom-color-btn-primary">Search Categories</button>
+        </t>
+        <div class="category_backend_modal modal" tabindex="-1" role="dialog">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Category List</h5>
+<!--                        <button type="button" class="category_modal_close close custom-color-btn-primary" data-dismiss="modal" aria-label="Close">-->
+<!--                            <span aria-hidden="true">×</span>-->
+<!--                        </button>-->
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                        aria-label="Close"/>
+                    </div>
+                    <div class="modal-body">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="website_sale_products" name="template_name" inherit_id="website_sale.products">
+        <xpath expr="//t[@t-call='website_sale.pricelist_list']" position="before">
+            <t t-call="project_cars_website.search_category_list"/>
+        </xpath>
+        <xpath expr="//div[@t-if='original_search and products']" position="replace">
+            <div t-if="search_count == 0" class="alert alert-warning mt8">
+                No results found for '<span t-esc="original_search"/>'. Showing results for '<span t-esc="search"/>'.
+            </div>
+        </xpath>
+<!--        <xpath expr="//h1[@t-if='category']" position="replace"></xpath>-->
+        <xpath expr="//div[hasclass('o_wsale_products_grid_table_wrapper')]" position="before">
+<!--            <div id="product_category" class="row" style="margin-left: 10px !important;">-->
+<!--                <t t-if="products" t-set="assigned_public_categ_ids"-->
+<!--                   t-value="products.filtered(lambda r: r.is_published).mapped('public_categ_ids').ids"/>-->
+<!--                <t t-if="not products" t-set="assigned_public_categ_ids"-->
+<!--                   t-value="request.env['product.public.category']"/>-->
+<!--                <t t-if="all_products" t-set="assigned_public_categ_ids"-->
+<!--                   t-value="all_products.filtered(lambda r: r.is_published).mapped('public_categ_ids').ids"/>-->
+<!--                <t t-set="assigned_public_categ_ids"-->
+<!--                   t-value="request.env['product.public.category'].sudo().search([('id','parent_of', assigned_public_categ_ids)])"/>-->
+<!--                <t t-set="assigned_public_categ_ids_parent" t-value="assigned_public_categ_ids"/>-->
+<!--                <div class="row button-category">-->
+<!--                    <t t-foreach="request.env['product.public.category'].search([('parent_id','=',False)])" t-as="cat" t-if="not category">-->
+<!--                        <t t-if="cat in assigned_public_categ_ids">-->
+<!--                            <a class="btn btn-link" id="category_btn"-->
+<!--                               t-att-href="keep('/shop/category/%s' % (slug(cat)), category=0)"-->
+<!--                               t-field="cat.name"/>-->
+<!--                        </t>-->
+<!--                    </t>-->
+<!--                    <t t-foreach="request.env['product.public.category'].search([('parent_id','=',category.id)])"-->
+<!--                       t-as="cat" t-if="category">-->
+<!--                        <t t-if="cat in assigned_public_categ_ids">-->
+<!--                            <a class="btn btn-link" id="category_btn"-->
+<!--                               t-att-href="keep('/shop/category/%s' % (slug(cat)), category=0)"-->
+<!--                               t-field="cat.name"/>-->
+<!--                        </t>-->
+<!--                    </t>-->
+<!--                </div>-->
+<!--            </div>-->
+            <t t-if="products" t-set="assigned_public_categ_ids"
+                   t-value="products.filtered(lambda r: r.is_published).mapped('public_categ_ids').ids"/>
+            <t t-if="not products" t-set="assigned_public_categ_ids"
+               t-value="request.env['product.public.category']"/>
+            <t t-if="all_products" t-set="assigned_public_categ_ids"
+               t-value="all_products.filtered(lambda r: r.is_published).mapped('public_categ_ids').ids"/>
+            <t t-set="assigned_public_categ_ids"
+               t-value="request.env['product.public.category'].sudo().search([('id','parent_of', assigned_public_categ_ids)])"/>
+            <t t-set="assigned_public_categ_ids_parent" t-value="assigned_public_categ_ids"/>
+
+            <div class="category-container d-flex flex-wrap"
+                 style="margin-top: -10px;max-height: 175px;overflow-y: auto;flex-wrap: wrap;display: flex;"
+            >
+                <t t-foreach="request.env['product.public.category'].search([('parent_id', '=', False)])" t-as="c" t-if="not category">
+                    <t t-if="c in assigned_public_categ_ids">
+                        <div class="category-item" style="width: 300px;margin-bottom: 10px;">
+                            <a t-att-href="keep('/shop/category/' + slug(c), category=0)" class="text-decoration-none" style="color: #212529;">
+                                <span t-field="c.name" class="category-name" style="white-space: normal;
+                                    word-break: break-word;
+                                    display: inline-block;
+                                    width: 100%;
+                                    text-align: center;"
+                                />
+                            </a>
+                        </div>
+                    </t>
+                </t>
+
+                <t t-foreach="request.env['product.public.category'].search([('parent_id', '=', category.id)])" t-as="c" t-if="category">
+                    <t t-if="c in assigned_public_categ_ids">
+                        <div class="category-item" style="width: 300px;margin-bottom: 10px;">
+                            <a t-att-href="keep('/shop/category/' + slug(c), category=0)" class="text-decoration-none" style="color: #212529;">
+                                <span t-field="c.name" class="category-name" style="white-space: normal;
+                                    word-break: break-word;
+                                    display: inline-block;
+                                    width: 100%;
+                                    text-align: center;"
+                                />
+                            </a>
+                        </div>
+                    </t>
+                </t>
+            </div>
+
+<!--            <div class="o_wsale_filmstip_container d-flex align-items-stretch mb-2 overflow-hidden">-->
+<!--                <div class="o_wsale_filmstip_wrapper pb-1 overflow-auto">-->
+<!--                    <ul class="o_wsale_filmstip d-flex align-items-stretch mb-0 list-unstyled overflow-visible">-->
+<!--                        <t t-if="category.parent_id" t-set="backUrl" t-value="keep('/shop/category/' + slug(category.parent_id), category=0)"/>-->
+<!--                        <t t-else="" t-set="backUrl" t-value="'/shop'"/>-->
+
+<!--                        <t t-foreach="request.env['product.public.category'].search([('parent_id', '=', False)])" t-as="c" t-if="not category">-->
+<!--                            <t t-if="c in assigned_public_categ_ids">-->
+<!--                                <li t-attf-class="d-flex {{'pe-3' if not c_last else ''}}">-->
+<!--                                    <a t-att-href="keep('/shop/category/' + slug(c), category=0)" class="text-decoration-none" draggable="false">-->
+<!--                                        <input type="radio" t-attf-name="wsale_categories_top_radios_{{parentCategoryId}}" class="btn-check pe-none" t-att-id="c.id" t-att-value="c.id" t-att-checked="'true' if c.id == category.id else None"/>-->
+<!--                                        <div style="background-color: #6EA8FE;" t-att-class="'d-flex align-items-center h-100 btn btn-'                                     + navClass                                     + (c.image_128 and ' ps-2 pe-3' or ' px-4')                                     + (c.id == category.id and ' border-primary' or '')">-->
+<!--                                            <div t-if="c.image_128" t-attf-style="background-image:url('data:image/png;base64,                                         #{c.image_128}')" class="o_image_40_cover oe_img_bg o_bg_img_center                                         flex-shrink-0 rounded-3 me-3" t-att-alt="c.name "/>-->
+<!--                                            <span class="text-nowrap" t-field="c.name"/>-->
+<!--                                        </div>-->
+<!--                                    </a>-->
+<!--                                </li>-->
+<!--                            </t>-->
+<!--                        </t>-->
+
+<!--                        <t t-foreach="request.env['product.public.category'].search([('parent_id', '=', category.id)])" t-as="c" t-if="category">-->
+<!--                            <t t-if="c in assigned_public_categ_ids">-->
+<!--                                <li t-attf-class="d-flex {{'pe-3' if not c_last else ''}}">-->
+<!--                                    <a t-att-href="keep('/shop/category/' + slug(c), category=0)" class="text-decoration-none" draggable="false">-->
+<!--                                        <input type="radio" t-attf-name="wsale_categories_top_radios_{{parentCategoryId}}" class="btn-check pe-none" t-att-id="c.id" t-att-value="c.id" t-att-checked="'true' if c.id == category.id else None"/>-->
+<!--                                        <div style="background-color: #6EA8FE;" t-att-class="'d-flex align-items-center h-100 btn btn-'                                     + navClass                                     + (c.image_128 and ' ps-2 pe-3' or ' px-4')                                     + (c.id == category.id and ' border-primary' or '')">-->
+<!--                                            <div t-if="c.image_128" t-attf-style="background-image:url('data:image/png;base64,                                         #{c.image_128}')" class="o_image_40_cover oe_img_bg o_bg_img_center                                         flex-shrink-0 rounded-3 me-3" t-att-alt="c.name "/>-->
+<!--                                            <span class="text-nowrap" t-field="c.name"/>-->
+<!--                                        </div>-->
+<!--                                    </a>-->
+<!--                                </li>-->
+<!--                            </t>-->
+<!--                        </t>-->
+<!--                    </ul>-->
+<!--                </div>-->
+<!--            </div>-->
+        </xpath>
+    </template>
+
+    <template id="products_item_inherited" inherit_id="website_sale.products_item">
+        <xpath expr="//*[hasclass('o_wsale_products_item_title')]" position="after">
+            <div class="oe_subdescription mb-2 text-muted small" contenteditable="false">
+                <div itemprop="description" t-field="product.description_sale"/>
+            </div>
+        </xpath>
+    </template>
+
+    <template id="filmstrip_categories_inherited" inherit_id="website_sale.filmstrip_categories">
+        <xpath expr="//div[hasclass('o_wsale_filmstrip_container')]" position="replace">
+<!--            <t t-if="products" t-set="assigned_public_categ_ids"-->
+<!--                   t-value="products.filtered(lambda r: r.is_published).mapped('public_categ_ids').ids"/>-->
+<!--            <t t-if="not products" t-set="assigned_public_categ_ids"-->
+<!--               t-value="request.env['product.public.category']"/>-->
+<!--            <t t-if="all_products" t-set="assigned_public_categ_ids"-->
+<!--               t-value="all_products.filtered(lambda r: r.is_published).mapped('public_categ_ids').ids"/>-->
+<!--            <t t-set="assigned_public_categ_ids"-->
+<!--               t-value="request.env['product.public.category'].sudo().search([('id','parent_of', assigned_public_categ_ids)])"/>-->
+<!--            <t t-set="assigned_public_categ_ids_parent" t-value="assigned_public_categ_ids"/>-->
+<!--            <div class="o_wsale_filmstip_container d-flex align-items-stretch mb-2 overflow-hidden">-->
+<!--                <div class="o_wsale_filmstip_wrapper pb-1 overflow-auto">-->
+<!--                    <ul class="o_wsale_filmstip d-flex align-items-stretch mb-0 list-unstyled overflow-visible">-->
+<!--                        <t t-if="category.parent_id" t-set="backUrl" t-value="keep('/shop/category/' + slug(category.parent_id), category=0)"/>-->
+<!--                        <t t-else="" t-set="backUrl" t-value="'/shop'"/>-->
+
+<!--                        <t t-foreach="request.env['product.public.category'].search([('parent_id', '=', False)])" t-as="c" t-if="not category">-->
+<!--                            <t t-if="c in assigned_public_categ_ids">-->
+<!--                                <li t-attf-class="d-flex {{'pe-3' if not c_last else ''}}">-->
+<!--                                    <a t-att-href="keep('/shop/category/' + slug(c), category=0)" class="text-decoration-none" draggable="false">-->
+<!--                                        <input type="radio" t-attf-name="wsale_categories_top_radios_{{parentCategoryId}}" class="btn-check pe-none" t-att-id="c.id" t-att-value="c.id" t-att-checked="'true' if c.id == category.id else None"/>-->
+<!--                                        <div style="background-color: #6EA8FE;" t-att-class="'d-flex align-items-center h-100 btn btn-'                                     + navClass                                     + (c.image_128 and ' ps-2 pe-3' or ' px-4')                                     + (c.id == category.id and ' border-primary' or '')">-->
+<!--                                            <div t-if="c.image_128" t-attf-style="background-image:url('data:image/png;base64,                                         #{c.image_128}')" class="o_image_40_cover oe_img_bg o_bg_img_center                                         flex-shrink-0 rounded-3 me-3" t-att-alt="c.name "/>-->
+<!--                                            <span class="text-nowrap" t-field="c.name"/>-->
+<!--                                        </div>-->
+<!--                                    </a>-->
+<!--                                </li>-->
+<!--                            </t>-->
+<!--                        </t>-->
+
+<!--                        <t t-foreach="request.env['product.public.category'].search([('parent_id', '=', category.id)])" t-as="c" t-if="category">-->
+<!--                            <t t-if="c in assigned_public_categ_ids">-->
+<!--                                <li t-attf-class="d-flex {{'pe-3' if not c_last else ''}}">-->
+<!--                                    <a t-att-href="keep('/shop/category/' + slug(c), category=0)" class="text-decoration-none" draggable="false">-->
+<!--                                        <input type="radio" t-attf-name="wsale_categories_top_radios_{{parentCategoryId}}" class="btn-check pe-none" t-att-id="c.id" t-att-value="c.id" t-att-checked="'true' if c.id == category.id else None"/>-->
+<!--                                        <div style="background-color: #6EA8FE;" t-att-class="'d-flex align-items-center h-100 btn btn-'                                     + navClass                                     + (c.image_128 and ' ps-2 pe-3' or ' px-4')                                     + (c.id == category.id and ' border-primary' or '')">-->
+<!--                                            <div t-if="c.image_128" t-attf-style="background-image:url('data:image/png;base64,                                         #{c.image_128}')" class="o_image_40_cover oe_img_bg o_bg_img_center                                         flex-shrink-0 rounded-3 me-3" t-att-alt="c.name "/>-->
+<!--                                            <span class="text-nowrap" t-field="c.name"/>-->
+<!--                                        </div>-->
+<!--                                    </a>-->
+<!--                                </li>-->
+<!--                            </t>-->
+<!--                        </t>-->
+<!--                    </ul>-->
+<!--                </div>-->
+<!--            </div>-->
+        </xpath>
+    </template>
+
+    <template id="products_categories_list_inherited" inherit_id="website_sale.products_categories_list">
+        <xpath expr="//div[@name='wsale_products_categories_list']" position="replace">
+            <t t-if="products" t-set="assigned_public_categ_ids"
+               t-value="products.filtered(lambda r: r.is_published).mapped('public_categ_ids').ids"/>
+            <t t-if="not products" t-set="assigned_public_categ_ids"
+               t-value="request.env['product.public.category']"/>
+            <t t-if="all_products" t-set="assigned_public_categ_ids"
+               t-value="all_products.filtered(lambda r: r.is_published).mapped('public_categ_ids').ids"/>
+            <t t-set="assigned_public_categ_ids"
+               t-value="request.env['product.public.category'].sudo().search([('id','parent_of', assigned_public_categ_ids)])"/>
+            <t t-set="assigned_public_categ_ids_parent" t-value="assigned_public_categ_ids"/>
+            <div name="wsale_products_categories_list" t-attf-class="wsale_products_categories_list">
+                <ul class="nav d-flex flex-column mb-3">
+                    <li class="nav-item mb-1" t-if="not category">
+                        <a t-att-href="keep('/shop', category=0)" t-attf-class="{{not category and 'text-decoration-underline'}} p-0">
+                            All Products
+                        </a>
+                    </li>
+
+                    <t t-foreach="request.env['product.public.category'].search([('parent_id', '=', False)])" t-as="c" t-if="not category">
+                        <t t-if="c in assigned_public_categ_ids">
+                            <li class="nav-item mb-1">
+                                <a t-att-href="keep('/shop/category/' + slug(c), category=0)" t-attf-class="{{c.id == category.id and 'text-decoration-underline'}} p-0" t-field="c.name"/>
+                            </li>
+                        </t>
+                    </t>
+
+                    <t t-foreach="request.env['product.public.category'].search([('parent_id', '=', category.id)])" t-as="c" t-if="category">
+                        <t t-if="c in assigned_public_categ_ids">
+                            <t t-call="website_sale.categories_recursive"/>
+                        </t>
+                    </t>
+                </ul>
+            </div>
+        </xpath>
+    </template>
+
+
+<!--    <template id="optional_product_items_inherited" inherit_id="website_sale_product_configurator.optional_product_items">-->
+<!--        <xpath expr="//tr//td[hasclass('td-product_name')]//div[@t-field='product.description_sale']"-->
+<!--               position="replace">-->
+<!--            <div class="text-muted small" t-raw="product.description_sale"/>-->
+<!--        </xpath>-->
+<!--    </template>-->
+
+<!--    <template id="configure_optional_products_inherited" inherit_id="website_sale_product_configurator.configure_optional_products">-->
+<!--        <xpath expr="//tbody//td[hasclass('td-product_name')]//div[@t-field='product.description_sale']"-->
+<!--               position="replace">-->
+<!--            <div t-raw="product.description_sale"/>-->
+<!--        </xpath>-->
+<!--        <xpath expr="//tbody//td[hasclass('td-product_name')]" position="after">-->
+<!--            <td>-->
+<!--                <span class="label"/>-->
+<!--            </td>-->
+<!--        </xpath>-->
+<!--        <xpath expr="//tbody//input[hasclass('product_id')]" position="after">-->
+<!--            <input type="hidden" class="product_display_name" t-att-value="product.name"/>-->
+<!--        </xpath>-->
+<!--        <xpath expr="//tbody//td[hasclass('td-product_name')]" position="replace">-->
+<!--            <strong class="product-name product_display_name" t-esc="combination_info['display_name']"/>-->
+<!--        </xpath>-->
+<!--    </template>-->
+
+    <template id="product_attributes_body_inherited" name="product_price" inherit_id="website_sale_comparison.product_attributes_body">
+        <xpath expr="//div[@id='product_specifications']//div" position="inside">
+            <div class="col-lg-6">
+                <table class="table" id="product_package_info_table"
+                       t-if="product_variant.product_height or product_variant.product_width or product_variant.product_length or product_variant.weight or product_variant.volume">
+                    <tr>
+                        <th class="text-left" t-att-colspan="2">
+                            <span>Product Packaging Information</span>
+                        </th>
+                    </tr>
+                    <tr t-if="product_variant.product_height">
+                        <td>
+                            <span>Height (Inch)</span>
+                        </td>
+                        <td id="product_height">
+                            <t t-esc="product_variant.product_height"/>
+                        </td>
+                    </tr>
+                    <tr t-if="product_variant.product_width">
+                        <td>
+                            <span>Width (Inch)</span>
+                        </td>
+                        <td id="product_width">
+                            <t t-esc="product_variant.product_width"/>
+                        </td>
+                    </tr>
+                    <tr t-if="product_variant.product_length">
+                        <td>
+                            <span>Length (Inch)</span>
+                        </td>
+                        <td id="product_length">
+                            <t t-esc="product_variant.product_length"/>
+                        </td>
+                    </tr>
+                    <tr t-if="product_variant.weight">
+                        <td>
+                            <span>Weight</span>
+                        </td>
+                        <td id="weight">
+                            <t t-esc="product_variant.weight"/>
+                            <t t-esc="product_variant.weight_uom_name"/>
+                        </td>
+                    </tr>
+                    <tr t-if="product_variant.volume">
+                        <td>
+                            <span>Volume</span>
+                        </td>
+                        <td id="volume">
+                            <t t-esc="product_variant.volume"/>
+                            <t t-esc="product_variant.volume_uom_name"/>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </xpath>
+    </template>
+
+    <template id="product_price_inherited" name="product_price" inherit_id="website_sale.product_price">
+        <xpath expr="//div[@name='product_price']" position="after">
+            <p class="p_default_code">
+                <strong>Product Code:</strong>
+                <span class="default_code" t-esc="combination_info['default_code']"/>
+            </p>
+        </xpath>
+    </template>
+
+    <template id="variants_inherited" name="template_name" inherit_id="website_sale.variants">
+        <xpath expr="//ul/t" position="replace">
+            <t t-set="is_msg_display" t-value="True"/>
+            <t t-set="partsync_eCommerce_filtering" t-value="product and product._get_pef()"/>
+            <t t-if="partsync_eCommerce_filtering">
+                <t t-foreach="product.valid_product_template_attribute_line_ids" t-as="ptal">
+                    <t t-set="attribute" t-value="ptal.attribute_id"/>
+                    <li t-att-data-attribute_id="ptal.attribute_id.id"
+                        t-att-data-attribute_name="ptal.attribute_id.name"
+                        t-attf-class="variant_attribute #{'d-none' if len(ptal.product_template_value_ids._only_active()) == 0 and not ptal.product_template_value_ids._only_active()[0].is_custom else ''}">
+
+                        <!-- Used to customize layout if the only available attribute value is custom -->
+                        <t t-set="single" t-value="len(ptal.product_template_value_ids._only_active()) == 0"/>
+                        <t t-set="single_and_custom"
+                           t-value="single and ptal.product_template_value_ids._only_active()[0].is_custom"/>
+                        <t t-set="is_msg_display" t-value="False"/>
+                        <strong t-field="ptal.attribute_id.name"
+                                t-attf-class="{{ptal.attribute_id.attribute_visibility != 'visible' and 'o_hidden' or 'attribute_name'}}"/>
+                        <t t-if="ptal.attribute_id.display_type == 'select'">
+                            <div t-attf-class="{{ ptal.attribute_id.attribute_visibility != 'visible' and 'o_hidden' or ''}}">
+                                <select t-att-data-attribute_id="ptal.attribute_id.id" t-attf-class="custom-select css_attribute_select js_variant_change #{ptal.attribute_id.create_variant} #{'d-none' if single_and_custom else ''}" t-att-name="'ptal-%s' % ptal.id">
+                                    <t t-foreach="ptal.product_template_value_ids._only_active()" t-as="ptav">
+                                        <option t-att-value="ptav.id"
+                                                t-att-data-value_id="ptav.id"
+                                                t-att-data-value_name="ptav.name"
+                                                t-att-data-attribute-value-id="ptav.product_attribute_value_id.id"
+                                                t-att-data-attribute_name="ptav.attribute_id.name"
+                                                t-att-data-is_custom="ptav.is_custom"
+                                                t-att-selected="ptav in combination"
+                                                t-att-data-is_single="single"
+                                                t-att-data-is_single_and_custom="single_and_custom">
+                                            <span t-field="ptav.name"/>
+                                            <t t-call="website_sale.badge_extra_price"/>
+                                        </option>
+                                    </t>
+                                </select>
+                            </div>
+                        </t>
+                        <t t-if="ptal.attribute_id.display_type == 'radio'">
+                            <div t-attf-class="{{ ptal.attribute_id.attribute_visibility != 'visible' and 'o_hidden' or ''}}">
+                                <ul t-att-data-attribute_id="ptal.attribute_id.id"
+                                    t-attf-class="list-inline list-unstyled #{'d-none' if single_and_custom else ''}">
+                                    <t t-foreach="ptal.product_template_value_ids._only_active()" t-as="ptav">
+                                        <li class="list-inline-item form-group js_attribute_value" style="margin: 0;">
+                                            <label class="col-form-label">
+                                                <div class="custom-control custom-radio">
+                                                    <input type="radio"
+                                                           t-attf-class="custom-control-input js_variant_change #{ptal.attribute_id.create_variant}"
+                                                           t-att-checked="ptav in combination"
+                                                           t-att-name="'ptal-%s' % ptal.id"
+                                                           t-att-value="ptav.id"
+                                                           t-att-data-value_id="ptav.id"
+                                                           t-att-data-value_name="ptav.name"
+                                                           t-att-data-attribute-value-id="ptav.product_attribute_value_id.id"
+                                                           t-att-data-attribute_name="ptav.attribute_id.name"
+                                                           t-att-data-is_custom="ptav.is_custom"
+                                                           t-att-data-is_single="single"
+                                                           t-att-data-is_single_and_custom="single_and_custom"/>
+                                                    <div class="radio_input_value custom-control-label">
+                                                        <span t-field="ptav.name"/>
+                                                        <t t-call="website_sale.badge_extra_price"/>
+                                                    </div>
+                                                </div>
+                                            </label>
+                                        </li>
+                                    </t>
+                                </ul>
+                            </div>
+                        </t>
+                        <t t-if="ptal.attribute_id.display_type == 'pills'">
+                            <div t-attf-class="{{ ptal.attribute_id.attribute_visibility != 'visible' and 'o_hidden' or ''}}">
+                                <ul t-att-data-attribute_id="ptal.attribute_id.id"
+                                    t-attf-class="btn-group-toggle list-inline list-unstyled #{'d-none' if single_and_custom else ''}"
+                                    data-toggle="buttons">
+                                    <t t-foreach="ptal.product_template_value_ids._only_active()" t-as="ptav">
+    <!--                                    <li t-attf-class="o_variant_pills btn btn-primary mb-1 list-inline-item js_attribute_value #{'active' if ptav in combination else ''}" style="height: 50px;">-->
+                                        <li t-attf-class="o_variant_pills btn btn-primary mb-1 list-inline-item js_attribute_value #{'active' if ptav in combination else ''}">
+                                            <input type="radio"
+                                                   t-attf-class="js_variant_change #{ptal.attribute_id.create_variant}"
+                                                   t-att-checked="ptav in combination"
+                                                   t-att-name="'ptal-%s' % ptal.id"
+                                                   t-att-value="ptav.id"
+                                                   t-att-data-value_id="ptav.id"
+                                                   t-att-id="ptav.id"
+                                                   t-att-data-value_name="ptav.name"
+                                                   t-att-data-attribute_name="ptav.attribute_id.name"
+                                                   t-att-data-attribute-value-id="ptav.product_attribute_value_id.id"
+                                                   t-att-data-is_custom="ptav.is_custom"
+                                                   t-att-data-is_single_and_custom="single_and_custom"
+                                                   t-att-autocomplete="off"/>
+    <!--                                        <div class="radio_input_value o_variant_pills_input_value" style="margin-top: -15px;">-->
+                                            <div class="radio_input_value o_variant_pills_input_value">
+                                                <span t-field="ptav.name"/>
+                                                <t t-call="website_sale.badge_extra_price"/>
+                                            </div>
+                                        </li>
+                                    </t>
+                                </ul>
+                            </div>
+                        </t>
+                        <t t-if="ptal.attribute_id.display_type == 'color'">
+                            <div t-attf-class="{{ ptal.attribute_id.attribute_visibility != 'visible' and 'o_hidden' or ''}}">
+                                <ul t-att-data-attribute_id="ptal.attribute_id.id"
+                                    t-attf-class="list-inline  #{'d-none' if single_and_custom else ''}">
+                                    <li t-foreach="ptal.product_template_value_ids._only_active()" t-as="ptav"
+                                        class="list-inline-item mr-1">
+                                        <label t-attf-style="background-color:#{ptav.html_color or ptav.product_attribute_value_id.name if not ptav.is_custom else ''}"
+                                               t-attf-class="css_attribute_color #{'active' if ptav in combination else ''} #{'custom_value' if ptav.is_custom else ''}">
+                                            <input type="radio"
+                                                   t-attf-class="js_variant_change  #{ptal.attribute_id.create_variant}"
+                                                   t-att-checked="ptav in combination"
+                                                   t-att-name="'ptal-%s' % ptal.id"
+                                                   t-att-value="ptav.id"
+                                                   t-att-title="ptav.name"
+                                                   t-att-data-value_id="ptav.id"
+                                                   t-att-data-value_name="ptav.name"
+                                                   t-att-data-attribute_name="ptav.attribute_id.name"
+                                                   t-att-data-is_custom="ptav.is_custom"
+                                                   t-att-data-is_single="single"
+                                                   t-att-data-is_single_and_custom="single_and_custom"/>
+                                        </label>
+                                    </li>
+                                </ul>
+                            </div>
+                        </t>
+                    </li>
+                </t>
+            </t>
+            <t t-else="">
+                <t t-foreach="product.valid_product_template_attribute_line_ids" t-as="ptal">
+                <t t-set="attribute" t-value="ptal.attribute_id"/>
+                <t t-set="ptavs" t-value="ptal.product_template_value_ids._only_active()"/>
+                <t t-set="single" t-value="len(ptavs) == 1"/>
+
+                <!-- Attributes selection is hidden if there is only one value available and it's not a custom value -->
+                <li t-att-data-attribute_id="attribute.id"
+                    t-att-data-attribute_name="attribute.name"
+                    t-att-data-attribute_display_type="attribute.display_type"
+                    t-attf-class="variant_attribute #{
+                        'd-none' if single
+                        and not ptavs[0].is_custom
+                        and not attribute.display_type == 'multi' else ''
+                    }">
+
+                    <!-- Used to customize layout if the only available attribute value is custom -->
+                    <t t-set="single_and_custom" t-value="single and ptavs[0].is_custom"/>
+                    <strong t-field="ptal.attribute_id.name" class="attribute_name"/>
+
+                    <t t-if="attribute.display_type == 'select'">
+                        <select
+                            t-att-data-attribute_id="attribute.id"
+                            t-attf-class="form-select css_attribute_select o_wsale_product_attribute js_variant_change #{attribute.create_variant} #{'d-none' if single_and_custom else ''}"
+                            t-att-name="'ptal-%s' % ptal.id">
+                            <t t-foreach="ptavs" t-as="ptav">
+                                <option t-att-value="ptav.id"
+                                    t-att-data-attribute-value-id="ptav.product_attribute_value_id.id"
+                                    t-att-data-value_id="ptav.id"
+                                    t-att-data-value_name="ptav.name"
+                                    t-att-data-attribute_name="attribute.name"
+                                    t-att-data-is_custom="ptav.is_custom"
+                                    t-att-selected="ptav in combination"
+                                    t-att-data-is_single="single"
+                                    t-att-data-is_single_and_custom="single_and_custom">
+                                    <span t-field="ptav.name"/>
+                                    <t t-call="website_sale.badge_extra_price"/>
+                                </option>
+                            </t>
+                        </select>
+                    </t>
+
+                    <t t-elif="attribute.display_type in ('radio', 'multi')">
+                        <ul t-att-data-attribute_id="attribute.id" t-attf-class="list-inline list-unstyled o_wsale_product_attribute #{'d-none' if single_and_custom else ''}">
+                            <t t-foreach="ptavs" t-as="ptav">
+                                <li class="list-inline-item mb-3 js_attribute_value" style="margin: 0;">
+                                    <label class="col-form-label">
+                                        <div class="form-check">
+                                            <input t-att-type="'radio' if attribute.display_type == 'radio' else 'checkbox'"
+                                                t-attf-class="form-check-input js_variant_change #{attribute.create_variant}"
+                                                t-att-checked="ptav in combination"
+                                                t-att-name="'ptal-%s' % ptal.id"
+                                                t-att-value="ptav.id"
+                                                t-att-data-attribute-value-id="ptav.product_attribute_value_id.id"
+                                                t-att-data-value_id="ptav.id"
+                                                t-att-data-value_name="ptav.name"
+                                                t-att-data-attribute_name="attribute.name"
+                                                t-att-data-is_custom="ptav.is_custom"
+                                                t-att-data-is_single="single if ptal.attribute_id.display_type != 'multi' else False"
+                                                t-att-data-is_single_and_custom="single_and_custom"/>
+                                            <div class="radio_input_value form-check-label">
+                                                <span t-field="ptav.name"/>
+                                                <t t-call="website_sale.badge_extra_price"/>
+                                            </div>
+                                        </div>
+                                    </label>
+                                </li>
+                            </t>
+                        </ul>
+                    </t>
+
+                    <t t-elif="attribute.display_type == 'pills'">
+                        <ul t-att-data-attribute_id="attribute.id"
+                            t-attf-class="btn-group-toggle list-inline list-unstyled o_wsale_product_attribute #{'d-none' if single_and_custom else ''}"
+                            data-bs-toggle="buttons">
+                            <t t-foreach="ptavs" t-as="ptav">
+                                <li t-attf-class="o_variant_pills btn btn-primary mb-1 list-inline-item js_attribute_value #{'active' if ptav in combination else ''}">
+                                    <input type="radio"
+                                        t-attf-class="js_variant_change #{attribute.create_variant}"
+                                        t-att-checked="ptav in combination"
+                                        t-att-name="'ptal-%s' % ptal.id"
+                                        t-att-value="ptav.id"
+                                        t-att-data-value_id="ptav.id"
+                                        t-att-id="ptav.id"
+                                        t-att-data-attribute-value-id="ptav.product_attribute_value_id.id"
+                                        t-att-data-value_name="ptav.name"
+                                        t-att-data-attribute_name="attribute.name"
+                                        t-att-data-is_custom="ptav.is_custom"
+                                        t-att-data-is_single_and_custom="single_and_custom"
+                                        t-att-autocomplete="off"/>
+                                    <label class="radio_input_value o_variant_pills_input_value"
+                                           t-att-for="ptav.id">
+                                        <span t-field="ptav.name"/>
+                                        <t t-call="website_sale.badge_extra_price"/>
+                                    </label>
+                                </li>
+                            </t>
+                        </ul>
+                    </t>
+
+                    <t t-elif="attribute.display_type == 'color'">
+                        <ul t-att-data-attribute_id="attribute.id" t-attf-class="list-inline o_wsale_product_attribute #{'d-none' if single_and_custom else ''}">
+                            <li t-foreach="ptavs" t-as="ptav" class="list-inline-item me-1">
+                                <t t-set="img_style"
+                                   t-value="'background:url(/web/image/product.template.attribute.value/%s/image); background-size:cover;' % ptav.id if ptav.image else ''"
+                                />
+                                <t t-set="color_style"
+                                   t-value="'background:' + str(ptav.html_color or ptav.name if not ptav.is_custom else '')"
+                                />
+                                <label t-attf-style="#{img_style or color_style}"
+                                       t-attf-class="css_attribute_color #{'active' if ptav in combination else ''} #{'custom_value' if ptav.is_custom else ''} #{'transparent' if (not ptav.is_custom and not ptav.html_color) else ''}"
+                                >
+                                      <input type="radio"
+                                        t-attf-class="js_variant_change  #{attribute.create_variant}"
+                                        t-att-checked="ptav in combination"
+                                        t-att-name="'ptal-%s' % ptal.id"
+                                        t-att-value="ptav.id"
+                                        t-att-title="ptav.name"
+                                        t-att-data-attribute-value-id="ptav.product_attribute_value_id.id"
+                                        t-att-data-value_id="ptav.id"
+                                        t-att-data-value_name="ptav.name"
+                                        t-att-data-attribute_name="attribute.name"
+                                        t-att-data-is_custom="ptav.is_custom"
+                                        t-att-data-is_single="single"
+                                        t-att-data-is_single_and_custom="single_and_custom"/>
+                                </label>
+                            </li>
+                        </ul>
+                    </t>
+                </li>
+            </t>
+            </t>
+        </xpath>
+    </template>
+
+    <template id="product_inherited" name="product" inherit_id="website_sale.product">
+        <xpath expr="//t[@t-call='website_sale.product_accordion']" position="before">
+            <p t-raw="product.description_sale" class="text-muted my-2"
+               placeholder="A short description that will also appear on documents."/>
+        </xpath>
+        <xpath expr="//div[@id='product_detail_main']" position="after">
+            <div class="s_tabs_main s_tabs_main_all_info bg-400">
+                <t t-set="partsync_product_filtering" t-value="product and product._get_ppf()"/>
+                <t t-set="partsync_eCommerce_filtering" t-value="product and product._get_pef()"/>
+                <div class="s_tabs_nav s_tabs_nav_header_part">
+                    <ul class="nav nav-tabs" role="tablist">
+                        <t t-if="partsync_eCommerce_filtering">
+                            <li class="nav-item">
+                                <a class="nav-link active" id="nav_tabs_link_1" data-bs-toggle="tab"
+                                   href="#nav_tabs_product_description" role="tab"
+                                   aria-controls="nav_tabs_product_description" aria-selected="true">Extended Product
+                                    Description
+                                </a>
+                            </li>
+                        </t>
+                        <t t-if="partsync_product_filtering">
+                            <li class="nav-item">
+                                <a class="nav-link" id="nav_tabs_link_2" data-bs-toggle="tab" href="#nav_tabs_view_fitment"
+                                   role="tab" aria-controls="nav_tabs_view_fitment" aria-selected="false">View Product
+                                    Fitment
+                                </a>
+                            </li>
+                        </t>
+                        <t t-if="partsync_eCommerce_filtering">
+                            <li class="nav-item">
+                                <a class="nav-link" id="nav_tabs_link_3" data-bs-toggle="tab" href="#nav_tabs_kit_component"
+                                   role="tab" aria-controls="nav_tabs_kit_component" aria-selected="false">View Bundle
+                                    Components
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" id="nav_tabs_link_3" data-bs-toggle="tab"
+                                   href="#nav_tabs_additional_product_info" role="tab"
+                                   aria-controls="nav_tabs_additional_product_info" aria-selected="false">Additional Product
+                                    Info
+                                </a>
+                            </li>
+                        </t>
+                    </ul>
+                </div>
+                <div class="s_tabs_content tab-content card-body s_tabs_content_part">
+                    <div class="tab-pane fade show active" id="nav_tabs_product_description" role="tabpanel"
+                         aria-labelledby="nav_tabs_link_1">
+                        <div class="oe_structure oe_empty">
+                            <section class="s_text_block">
+                                <div class="container s_allow_columns">
+                                    <p t-raw="product.extend_product_description" class="text-muted my-2"
+                                       placeholder="A short description that will also appear on documents."/>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="nav_tabs_view_fitment" role="tabpanel"
+                         aria-labelledby="nav_tabs_link_2">
+                        <div class="oe_structure oe_empty">
+                            <section class="s_text_block">
+                                <div class="container s_allow_columns">
+                                    <div t-attf-class="fitment_data row {{ 'display' if not product.fitment_ids else 'o_hidden'}}">
+                                        <h3 style="margin-left: 15px;">Product Fitment Not Available.</h3>
+                                    </div>
+
+                                    <div id="fitment_data_div" t-attf-class="fitment_data row {{ 'display' if product.fitment_ids else 'o_hidden'}}" style="width: 100% !important; max-height: 250px !important; overflow-y: scroll;    margin-right: 0px;margin-left: 0px;">
+                                        <table id="fitment_data_table" class="table table-sm o_main_table">
+                                            <thead>
+                                                <tr>
+                                                    <th class="sorted ascending">
+                                                        <strong>Year</strong>
+                                                    </th>
+                                                    <th>
+                                                        <strong>Make</strong>
+                                                    </th>
+                                                    <th>
+                                                        <strong>Model</strong>
+                                                    </th>
+                                                    <th>
+                                                        <strong>Submodel</strong>
+                                                    </th>
+                                                    <th>
+                                                        <strong>Wheel Configuration</strong>
+                                                    </th>
+                                                    <th>
+                                                        <strong>Vehicle Platform</strong>
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody t-if="product.fitment_ids" id="fitment_data_table_ebody">
+                                                <t t-foreach="product.fitment_ids" t-as="fitment_record">
+                                                    <tr>
+                                                        <td>
+                                                            <t t-if="fitment_record.year_id">
+                                                                <span t-esc="fitment_record.year_id.name"/>
+                                                            </t>
+                                                        </td>
+                                                        <td>
+                                                            <t t-if="fitment_record.make_id">
+                                                                <span t-esc="fitment_record.make_id.name"/>
+                                                            </t>
+                                                        </td>
+                                                        <td>
+                                                            <t t-if="fitment_record.model_id">
+                                                                <span t-esc="fitment_record.model_id.name"/>
+                                                            </t>
+                                                        </td>
+                                                        <td>
+                                                            <t t-if="fitment_record.submodel_id">
+                                                                <span t-esc="fitment_record.submodel_id.name"/>
+                                                            </t>
+                                                        </td>
+                                                        <td>
+                                                            <t t-if="fitment_record.rear_wheels_id">
+                                                                <span t-esc="fitment_record.rear_wheels_id.name"/>
+                                                            </t>
+                                                        </td>
+                                                        <td>
+                                                            <t t-if="fitment_record.vehicle_platform_id">
+                                                                <span t-esc="fitment_record.vehicle_platform_id.name"/>
+                                                            </t>
+                                                        </td>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="nav_tabs_kit_component" role="tabpanel" aria-labelledby="nav_tabs_link_3">
+                        <div class="oe_structure oe_empty">
+                            <section class="s_text_block">
+                                <div class="container s_allow_columns">
+<!--                                    <div t-attf-class="kit_div row {{ 'o_hidden' if combination_info['mrp_bom'] else 'display'}}">-->
+<!--                                        <h3 style="margin-left: 15px;">Bundle Components Not Available.</h3>-->
+<!--                                    </div>-->
+                                    <div id="kit_div"
+                                         t-attf-class="mrp_bom_details row {{ 'display' if combination_info['mrp_bom'] else 'o_hidden'}}"
+                                         style="width: 100% !important; max-height: 250px !important; overflow-y: scroll;margin-right: 0px;margin-left: 0px;">
+                                        <!--<div id="save_price"
+                                             style="margin-left: 15px !important;margin: 5px;    color: rgb(255, 0, 255);">
+                                            <span id="save_price" style="font-weight: bolder; animation-duration: 3s !important; animation-delay: 2s !important; animation-name: o_anim_bounce_in_down; animation-play-state: running; visibility: visible;" class="o_animated_text o_animate o_animate_both_scroll o_anim_bounce_in_down o_visible o_animated save_price">
+                                                <span t-esc="combination_info['save_price']"/>
+                                            </span>
+                                        </div>-->
+                                        <table id="kit_table" class="table table-sm o_main_table">
+                                            <thead>
+                                                <tr>
+                                                    <td>
+                                                        <strong>Component</strong>
+                                                    </td>
+                                                    <td>
+                                                        <strong>Quantity</strong>
+                                                    </td>
+                                                    <td>
+                                                        <strong>Unit of Measure</strong>
+                                                    </td>
+                                                    <!--<td>
+                                                        <strong>Price</strong>
+                                                    </td>
+                                                    <td>
+                                                        <strong>Total</strong>
+                                                    </td>-->
+                                                </tr>
+                                            </thead>
+                                            <tbody t-if="combination_info['mrp_bom']" id="kit_table_ebody">
+                                                <t t-foreach="combination_info['mrp_bom'].bom_line_ids"
+                                                   t-as="bom_line_id">
+                                                    <tr>
+                                                        <t t-set="total"
+                                                           t-value="bom_line_id.product_qty * bom_line_id.product_id.list_price"/>
+                                                        <td>
+                                                            <span t-esc="bom_line_id.product_id.name"/>
+                                                        </td>
+                                                        <td>
+                                                            <span t-esc="bom_line_id.product_qty"/>
+                                                        </td>
+                                                        <td>
+                                                            <span t-esc="bom_line_id.product_uom_id.name"/>
+                                                        </td>
+                                                        <!--<td>
+                                                            <span t-esc="bom_line_id.product_id.list_price"/>
+                                                        </td>
+                                                        <td>
+                                                            <span t-esc="total"/>
+                                                        </td>-->
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                            <tbody t-else="" id="kit_table_ebody">
+                                            </tbody>
+                                            <!--<tfoot t-attf-class=" {{ combination_info['mrp_bom'] and 'diplay' or 'o_hidden'}}"
+                                                   id="kit_table_tfoot">
+                                                <td colspan="4">
+                                                    <strong>If Purchased Separately</strong>
+                                                </td>
+                                                <td id="final_total">
+                                                    <strong>
+                                                        <span t-esc="combination_info['final_total']"/>
+                                                    </strong>
+                                                </td>
+                                            </tfoot>-->
+                                        </table>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="nav_tabs_additional_product_info" role="tabpanel"
+                         aria-labelledby="nav_tabs_link_3">
+                        <div class="oe_structure oe_empty">
+                            <section class="s_text_block">
+                                <div class="container s_allow_columns">
+
+                                    <div class="additional_product_info">
+                                        <p t-raw="product.additional_product_info" class="text-muted my-2"/>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </xpath>
+    </template>
+
+<!--    <template id="product_wishlist_inherited" name="Cart Description" inherit_id="website_sale_wishlist.product_wishlist">-->
+<!--        <xpath expr="//small[hasclass('d-md-block')]" position="replace">-->
+<!--            <small class="d-none d-md-block">-->
+<!--                <p t-raw="wish.product_id.description_sale" class="text-muted"/>-->
+<!--            </small>-->
+<!--        </xpath>-->
+<!--    </template>-->
+
+    <template id="cart_line_description_following_lines_inherited" name="Cart Description" inherit_id="website_sale.cart_line_description_following_lines">
+        <xpath expr="//span" position="replace">
+            <span>
+                <t t-raw="name_line"/>
+            </span>
+        </xpath>
+    </template>
+
+    <template id="one_hybrid_inherited" name="one_hybrid" inherit_id="website.one_hybrid">
+        <xpath expr="//div[hasclass('o_search_result_item')]//p[@t-if='description']" position="replace">
+            <p t-if="description" class="mb-0 o_hidden" t-raw="description"/>
+        </xpath>
+    </template>
+
+    <template id="products_attributes_inherited" inherit_id="website_sale.products_attributes">
+        <xpath expr="//div[@id='wsale_products_attributes_collapse']" position="attributes">
+            <attribute name="t-if">True</attribute>
+        </xpath>
+
+    </template>
+    <template id="website_sale_product_inherit" inherit_id="website_sale.products">
+        <xpath expr="//aside[@id='products_grid_before']/div[hasclass('o_wsale_products_grid_before_rail')]/div[2]" position="replace">
+            <t t-set="partsync_product_filtering" t-value="products and products._get_ppf()"/>
+            <div class="collapse d-lg-block filter-attributes" id="wsale_products_attributes_collapse">
+                <t t-set="url" t-value="'/shop'"/>
+                <ul class="nav flex-column" style="margin-left: 0px;">
+                    <t t-if="partsync_product_filtering">
+                        <!-- ==========================Make========================-->
+                        <div t-if="products or select_fitment_make or fitment_data['make']" id="fitment_make">
+                            <div>
+                                <strong t-esc="make" class="o_products_attributes_title text-uppercase d-block my-2">
+                                    Make
+                                </strong>
+                            </div>
+                            <select id="fitment_make" class="custom-select css_attribute_select"
+                                    name="fitment_make" style="width: 200px;border-radius: 5px;">
+                                <option value=""/>
+                                <t t-foreach="fitment_data['make']" t-as="make">
+                                    <option t-att-value="make" t-att-selected="select_fitment_make == make">
+                                        <span t-esc="make"/>
+                                    </option>
+                                </t>
+                            </select>
+                        </div>
+
+                        <!-- ==========================Model========================-->
+                        <div t-if="products or select_fitment_model or fitment_data['model']" id="fitment_model">
+                            <div>
+                                <strong t-esc="model" class="o_products_attributes_title text-uppercase d-block my-2">
+                                    Model
+                                </strong>
+                            </div>
+                            <select id="fitment_model"
+                                    class="custom-select css_attribute_select" name="fitment_model"
+                                    t-att-disabled="'disabled' if not select_fitment_make else None"
+                                    style="width: 200px;border-radius: 5px;">
+                                <option value=""/>
+                                <t t-foreach="fitment_data['model']" t-as="model">
+                                    <option t-att-value="model" t-att-selected="select_fitment_model == model">
+                                        <span t-esc="model"/>
+                                    </option>
+                                </t>
+                            </select>
+                        </div>
+
+                        <!--==========================Year========================-->
+                        <div t-if="products or select_fitment_year or fitment_data['year']" id="fitment_year">
+                            <div>
+                                <strong t-esc="Year" class="o_products_attributes_title text-uppercase d-block my-2">
+                                    Year
+                                </strong>
+                            </div>
+                            <select id="fitment_year" class="custom-select css_attribute_select"
+                                    t-att-disabled="'disabled' if not select_fitment_make else None"
+                                    name="fitment_year" style="width: 200px;border-radius: 5px;">
+                                <option value=""/>
+                                <t t-foreach="fitment_data['year']" t-as="year">
+                                    <option t-att-value="year" t-att-selected="select_fitment_year == year">
+                                        <span t-esc="year"/>
+                                    </option>
+                                </t>
+                            </select>
+                        </div>
+                        <!--==========================SubModel========================-->
+                        <div t-if="products or select_fitment_submodel or fitment_data['submodel']"
+                             id="fitment_submodel">
+                            <div>
+                                <strong t-esc="submodel"
+                                        class="o_products_attributes_title text-uppercase d-block my-2">
+                                    Submodel
+                                </strong>
+                            </div>
+                            <select id="fitment_submodel"
+                                    class="custom-select css_attribute_select" name="fitment_submodel"
+                                    t-att-disabled="'disabled' if not (fitment_data['submodel'] and select_fitment_make) else None"
+                                    style="width: 200px;border-radius: 5px;">
+                                <option value=""/>
+                                <t t-foreach="fitment_data['submodel']" t-as="submodel">
+                                    <option t-att-value="submodel" t-att-selected="select_fitment_submodel == submodel">
+                                        <span t-esc="submodel"/>
+                                    </option>
+                                </t>
+                            </select>
+                        </div>
+                        <!--==========================Wheel Configuration========================-->
+                        <div t-if="products or fitment_data['rear_wheels'] or select_fitment_rear_wheels"
+                             id="fitment_rear_wheels">
+                            <div>
+                                <strong t-esc="rear_wheels"
+                                        class="o_products_attributes_title text-uppercase d-block my-2">
+                                    Wheel Configuration
+                                </strong>
+                            </div>
+                            <select id="fitment_rear_wheels"
+                                    class="custom-select css_attribute_select" name="fitment_rear_wheels"
+                                    t-att-disabled="'disabled' if not (fitment_data['rear_wheels'] and select_fitment_make) else None"
+                                    style="width: 200px;border-radius: 5px;">
+                                <option value=""/>
+                                <t t-foreach="fitment_data['rear_wheels']" t-as="rear_wheel">
+                                    <option t-att-value="rear_wheel"
+                                            t-att-selected="select_fitment_rear_wheels == rear_wheel">
+                                        <span t-esc="rear_wheel"/>
+                                    </option>
+                                </t>
+                            </select>
+                        </div>
+                        <!-- ==========================Vehicle Platform========================-->
+                        <div t-if="(products or fitment_data['vehicle_platform_id']) or select_vehicle_platform_id"
+                             id="fitment_vehicle_platform_ids">
+                            <div t-if="fitment_data['vehicle_platform_id']">
+                                <strong t-esc="vehicle_platform_id"
+                                        class="o_products_attributes_title text-uppercase d-block my-2">Vehicle Platform
+                                </strong>
+                            </div>
+                            <select t-if="fitment_data['vehicle_platform_id']" id="vehicle_platform_id"
+                                    class="custom-select css_attribute_select" name="vehicle_platform_id"
+                                    t-att-disabled="'disabled' if not (select_fitment_make or select_fitment_year) else None"
+                                    style="width: 200px;border-radius: 5px;">
+                                <option value=""/>
+                                <t t-foreach="fitment_data['vehicle_platform_id']" t-as="vehicle_platform_id">
+                                    <option t-att-value="vehicle_platform_id"
+                                            t-att-selected="select_vehicle_platform_id == vehicle_platform_id">
+                                        <span t-esc="vehicle_platform_id"/>
+                                    </option>
+                                </t>
+                            </select>
+                        </div>
+                    </t>
+                </ul>
+            </div>
+
+            <t t-set="partsync_eCommerce_filtering" t-value="products and products._get_pef()"/>
+            <div t-if="fitment_data or attrib_values"
+                    class="accordion-item rounded-0 border-top-0 py-3">
+                <t t-if="partsync_eCommerce_filtering">
+                    <a href="/shop"
+                       t-attf-class="btn btn-{{navClass}} custom-color-btn-primary d-flex align-items-center py-1"
+                       title="Clear Filters">
+                        <small class="mx-auto">
+                            <b>Clear Filters</b>
+                        </small>
+                        <i class="oi oi-close" role="presentation"/>
+                    </a>
+                </t>
+            </div>
+        </xpath>
+    </template>
+
+    <template id="product_attribute_filters_form_inherited" inherit_id="website_sale.product_attribute_filters_form">
+        <xpath expr="//form/t[2]" position="replace">
+            <t t-set="partsync_eCommerce_filtering" t-value="products and products._get_pef()"/>
+            <t t-if="partsync_eCommerce_filtering">
+                <t t-foreach="attributes" t-as="a">
+                    <t t-set="all_value_ids"
+                       t-value="a.product_tmpl_ids and a.product_tmpl_ids.mapped('attribute_line_ids') and a.product_tmpl_ids.mapped('attribute_line_ids').mapped('value_ids') or False"/>
+                    <t t-set="value_ids"
+                       t-value="a.value_ids if a.show_all_attribute_values else a.value_ids and all_value_ids and a.value_ids.filtered(lambda x:x.id in all_value_ids.ids) or False"/>
+                    <t t-if="not attribute_values">
+                        <t t-cache="a,attrib_set">
+                            <div class="accordion-item nav-item mb-1 rounded-0" t-if="value_ids">
+                                <h6 class="mb-3">
+                                    <b class="d-none d-lg-block" t-field="a.name"/>
+                                </h6>
+                                <div t-attf-id="o_products_attributes_{{a.id}}" class="">
+                                    <t t-if="a.display_type == 'select'">
+                                        <select class="form-select css_attribute_select mb-2" name="attribute_value">
+                                            <!--                                        <option value="" selected="true">All <t t-out="a.name"/></option>-->
+                                            <option value="" selected="true"></option>
+                                            <t t-foreach="value_ids" t-as="v">
+                                                <option t-att-value="'%s-%s' % (a.id,v.id)" t-esc="v.name"
+                                                        t-att-selected="v.id in attrib_set"/>
+                                            </t>
+                                        </select>
+                                    </t>
+                                    <div t-elif="a.display_type == 'color'" class="mb-3">
+                                        <t t-call="website_sale.filter_color_attributes"/>
+                                    </div>
+                                    <div t-elif="a.display_type in ('radio', 'pills', 'multi')"
+                                         class="flex-column mb-3">
+                                        <t t-foreach="value_ids" t-as="v">
+                                            <div class="form-check mb-1">
+                                                <input type="checkbox"
+                                                       name="attribute_value"
+                                                       class="form-check-input"
+                                                       t-att-id="'%s-%s' % (a.id,v.id)"
+                                                       t-att-value="'%s-%s' % (a.id,v.id)"
+                                                       t-att-checked="'checked' if v.id in attrib_set else None"/>
+                                                <label class="form-check-label fw-normal"
+                                                       t-att-for="'%s-%s' % (a.id,v.id)" t-field="v.name"/>
+                                            </div>
+                                        </t>
+                                    </div>
+                                </div>
+                            </div>
+                        </t>
+                    </t>
+                    <t t-else="">
+                        <t t-cache="a,attrib_set">
+                            <div class="accordion-item nav-item mb-1 rounded-0" t-if="value_ids">
+                                <h6 class="mb-3">
+                                    <b class="d-none d-lg-block" t-field="a.name"/>
+                                </h6>
+                                <div t-attf-id="o_products_attributes_{{a.id}}" class="">
+                                    <t t-if="a.display_type == 'select'">
+                                        <select class="form-select css_attribute_select mb-2" name="attribute_value">
+                                            <option value="" selected="true"></option>
+                                            <!--                                        <option value="" selected="true">All <t t-out="a.name"/></option>-->
+                                            <t t-foreach="value_ids" t-as="v">
+                                                <t t-if="v in attribute_values">
+                                                    <option t-att-value="'%s-%s' % (a.id,v.id)" t-esc="v.name"
+                                                            t-att-selected="v.id in attrib_set"/>
+                                                </t>
+                                            </t>
+                                        </select>
+                                    </t>
+                                    <div t-elif="a.display_type == 'color'" class="mb-3">
+                                        <t t-call="website_sale.filter_color_attributes"/>
+                                    </div>
+                                    <div t-elif="a.display_type in ('radio', 'pills', 'multi')"
+                                         class="flex-column mb-3">
+                                        <t t-foreach="value_ids" t-as="v">
+                                            <t t-if="v in attribute_values">
+                                                <div class="form-check mb-1">
+                                                    <input type="checkbox"
+                                                           name="attribute_value"
+                                                           class="form-check-input"
+                                                           t-att-id="'%s-%s' % (a.id,v.id)"
+                                                           t-att-value="'%s-%s' % (a.id,v.id)"
+                                                           t-att-checked="'checked' if v.id in attrib_set else None"/>
+                                                    <label class="form-check-label fw-normal"
+                                                           t-att-for="'%s-%s' % (a.id,v.id)" t-field="v.name"/>
+                                                </div>
+                                            </t>
+                                        </t>
+                                    </div>
+                                </div>
+                            </div>
+                        </t>
+                    </t>
+                </t>
+            </t>
+            <t t-else="">
+                <t t-foreach="attributes" t-as="a">
+                    <t t-cache="a,attrib_set">
+                        <div class="accordion-item nav-item mb-1 rounded-0"
+                             t-if="a.value_ids and len(a.value_ids) &gt; 1">
+                            <h6 class="mb-3">
+                                <b class="d-none d-lg-block" t-field="a.name"/>
+                            </h6>
+                            <div t-attf-id="o_products_attributes_{{a.id}}" class="">
+                                <t t-if="a.display_type == 'select'">
+                                    <select class="form-select css_attribute_select mb-2" name="attribute_value">
+                                        <option value="" selected="true">All
+                                            <t t-out="a.name"/>
+                                        </option>
+                                        <t t-foreach="a.value_ids" t-as="v">
+                                            <option t-att-value="'%s-%s' % (a.id,v.id)" t-esc="v.name"
+                                                    t-att-selected="v.id in attrib_set"/>
+                                        </t>
+                                    </select>
+                                </t>
+                                <div t-elif="a.display_type == 'color'" class="mb-3">
+                                    <t t-call="website_sale.filter_color_attributes"/>
+                                </div>
+                                <div t-elif="a.display_type in ('radio', 'pills', 'multi')" class="flex-column mb-3">
+                                    <t t-foreach="a.value_ids" t-as="v">
+                                        <div class="form-check mb-1">
+                                            <input type="checkbox"
+                                                   name="attribute_value"
+                                                   class="form-check-input"
+                                                   t-att-id="'%s-%s' % (a.id,v.id)"
+                                                   t-att-value="'%s-%s' % (a.id,v.id)"
+                                                   t-att-checked="'checked' if v.id in attrib_set else None"/>
+                                            <label class="form-check-label fw-normal" t-att-for="'%s-%s' % (a.id,v.id)"
+                                                   t-field="v.name"/>
+                                        </div>
+                                    </t>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </t>
+            </t>
+        </xpath>
+    </template>
+
+
+        <template id="get_more_product_information_page" name="Get More Product Information">
+        <t t-call="website.layout">
+            <t t-set="logged_partner" t-value="request.env['website.visitor']._get_visitor_from_request().partner_id"/>
+            <t t-set="contactus_form_values"
+               t-value="{                 'email_to': res_company.email,                 'name': request.params.get('name', ''),                 'phone': request.params.get('phone', ''),                 'email_from': request.params.get('email_from', ''),                 'company': request.params.get('company', ''),                 'subject': request.params.get('subject', ''),             }"/>
+            <span class="hidden" data-for="contactus_form" t-att-data-values="contactus_form_values"/>
+            <div id="wrap" class="oe_structure oe_empty">
+                <!--  <section class="s_title parallax s_parallax_is_fixed bg-black-50 o_colored_level pb256 pt88" data-vcss="001" data-snippet="s_title" data-scroll-background-ratio="1" data-name="Title" style="background-image: none;">
+                   <span class="s_parallax_bg oe_img_bg o_bg_img_center" style="background-image: url(&quot;/unsplash/jy0qz8kSWac/chevy pickup.jpg?unique=8d1e2e18&quot;); background-position: 50% 0px;"/>
+                   <div class="o_we_bg_filter bg-black-50"/>
+                   <div class="container">
+                     <h1>Get More Product Info</h1>
+                     <h1 style="text-align: right;">Place an Order</h1>
+                   </div>
+                 </section> -->
+                <div class="s_popup o_snippet_invisible" data-vcss="001" data-snippet="s_popup" data-name="Popup"
+                     id="sPopup1643190434622" data-invisible="1">
+                    <div class="modal fade s_popup_middle modal_shown"
+                         style="display: none; background-color: var(--black-50)  !important;" data-show-after="5000"
+                         data-display="afterDelay" data-consents-duration="7" data-focus="false" data-backdrop="false"
+                         tabindex="-1" role="dialog" aria-hidden="true">
+                        <div class="modal-dialog d-flex">
+                            <div class="modal-content oe_structure">
+                                <div class="s_popup_close js_close_popup o_we_no_overlay o_not_editable text-o-color-2"
+                                     aria-label="Close">×
+                                </div>
+                                <section class="s_banner pt96 pb96 o_colored_level oe_img_bg o_bg_img_center"
+                                         data-snippet="s_banner"
+                                         style="background-image: url(&quot;/unsplash/nLrLv4IK_Yk/truck%20show.jpg?unique=ded94e25&quot;);">
+                                    <div class="container">
+                                        <div class="row s_nb_column_fixed">
+                                            <div class="col-lg-10 offset-lg-1 text-center o_cc o_cc1 jumbotron pt48 pb48 o_colored_level"
+                                                 data-original-title="" title="" aria-describedby="tooltip96732">
+                                                <h2>
+                                                    <font style="font-size: 62px;">Sales Events
+                                                        <br/>
+                                                    </font>
+                                                </h2>
+                                                <p class="lead">Visit us at our next sales event and save!
+                                                    <br/>
+                                                </p>
+                                                <a href="/events" class="mb-2 btn btn-primary" data-original-title=""
+                                                   title="">View Our Events Calendar
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <section class="s_text_block pt40 pb40 o_colored_level" data-snippet="s_text_block" data-name="Text"
+                         style="background-image: none;" data-original-title="" title=""
+                         aria-describedby="tooltip496408">
+                    <div class="s_allow_columns container">
+                        <div class="row">
+                            <div class="col-lg-8 mt-4 mt-lg-0 o_colored_level" style="">
+                                <p>
+                                    <br/>
+                                </p>
+                                <section class="s_website_form" data-vcss="001" data-snippet="s_website_form"
+                                         data-name="Form">
+                                    <div class="container">
+                                        <form id="contactus_form3" action="/website/form/" method="post"
+                                              enctype="multipart/form-data" class="o_mark_required" data-mark="*"
+                                              data-model_name="mail.mail" data-success-mode="redirect"
+                                              data-success-page="/contactus-thank-you" data-pre-fill="true">
+                                            <div class="s_website_form_rows row s_col_no_bgcolor">
+                                                <div class="form-group col-12 s_website_form_field s_website_form_custom s_website_form_required"
+                                                     data-type="char" data-name="Field" data-visibility-condition=""
+                                                     data-visibility-between="">
+                                                    <div class="row s_col_no_resize s_col_no_bgcolor">
+                                                        <label class="col-form-label col-sm-auto s_website_form_label"
+                                                               style="width: 200px" for="contact1">
+                                                            <span class="s_website_form_label_content">Your Name</span>
+                                                            <span class="s_website_form_mark">*</span>
+                                                        </label>
+                                                        <div class="col-sm">
+                                                            <input id="contact1" type="text"
+                                                                   class="form-control s_website_form_input" name="name"
+                                                                   required="" data-fill-with="name"/>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="form-group col-12 s_website_form_field s_website_form_custom"
+                                                     data-type="char" data-name="Field">
+                                                    <div class="row s_col_no_resize s_col_no_bgcolor">
+                                                        <label class="col-form-label col-sm-auto s_website_form_label"
+                                                               style="width: 200px" for="contact2">
+                                                            <span class="s_website_form_label_content">Phone Number
+                                                            </span>
+                                                        </label>
+                                                        <div class="col-sm">
+                                                            <input id="contact2" type="tel"
+                                                                   class="form-control s_website_form_input"
+                                                                   name="phone" data-fill-with="phone"/>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="form-group col-12 s_website_form_field s_website_form_required"
+                                                     data-type="email" data-name="Field">
+                                                    <div class="row s_col_no_resize s_col_no_bgcolor">
+                                                        <label class="col-form-label col-sm-auto s_website_form_label"
+                                                               style="width: 200px" for="contact3">
+                                                            <span class="s_website_form_label_content">Your Email</span>
+                                                            <span class="s_website_form_mark">*</span>
+                                                        </label>
+                                                        <div class="col-sm">
+                                                            <input id="contact3" type="email"
+                                                                   class="form-control s_website_form_input"
+                                                                   name="email_from" required=""
+                                                                   data-fill-with="email"/>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="form-group col-12 s_website_form_field s_website_form_custom"
+                                                     data-type="char" data-name="Field">
+                                                    <div class="row s_col_no_resize s_col_no_bgcolor">
+                                                        <label class="col-form-label col-sm-auto s_website_form_label"
+                                                               style="width: 200px" for="contact4">
+                                                            <span class="s_website_form_label_content">Your Company
+                                                            </span>
+                                                        </label>
+                                                        <div class="col-sm">
+                                                            <input id="contact4" type="text"
+                                                                   class="form-control s_website_form_input"
+                                                                   name="company"
+                                                                   data-fill-with="commercial_company_name"/>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div class="form-group col-12 s_website_form_field s_website_form_custom"
+                                                     data-type="char" data-name="Field">
+                                                    <div class="row s_col_no_resize s_col_no_bgcolor">
+                                                        <label class="col-form-label col-sm-auto s_website_form_label"
+                                                               style="width: 200px" for="contact4_product">
+                                                            <span class="s_website_form_label_content">Product</span>
+                                                        </label>
+                                                        <div class="col-sm">
+                                                            <input id="contact4_product" type="text"
+                                                                   class="form-control s_website_form_input"
+                                                                   t-att-value="product_name" name="product_name"
+                                                                   data-fill-with="commercial_product_name"/>
+                                                        </div>
+                                                        <div class="col-sm">
+                                                            <t t-if="return_url">
+
+                                                                <a name="Return to Product" class="mt16"
+                                                                   t-att-href="return_url">
+                                                                    <button type="button" role="button"
+                                                                            class="btn btn-primary ml-auto custom-color-btn-primary"
+                                                                            title="Return to Product">Return to Product
+                                                                    </button>
+
+                                                                </a>
+                                                            </t>
+
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+
+                                                <div class="form-group col-12 s_website_form_field s_website_form_required"
+                                                     data-type="char" data-name="Field">
+                                                    <div class="row s_col_no_resize s_col_no_bgcolor">
+                                                        <label class="col-form-label col-sm-auto s_website_form_label"
+                                                               style="width: 200px" for="contact5">
+                                                            <span class="s_website_form_label_content">Subject</span>
+                                                            <span class="s_website_form_mark">*</span>
+                                                        </label>
+                                                        <div class="col-sm">
+                                                            <input id="contact5" type="text"
+                                                                   class="form-control s_website_form_input"
+                                                                   name="subject" required=""/>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div data-visibility-condition="" data-visibility-between=""
+                                                     class="form-group s_website_form_field col-12 s_website_form_custom s_website_form_required"
+                                                     data-type="one2many" data-name="Field">
+                                                    <div class="row s_col_no_resize s_col_no_bgcolor">
+                                                        <label class=" col-sm-auto s_website_form_label "
+                                                               style="width: 200px" for="otr1j52vzjqc">
+                                                            <span class="s_website_form_label_content">Help us get you a
+                                                                quick reply-
+                                                            </span>
+                                                        </label>
+                                                        <div class="col-sm">
+                                                            <div class="row s_col_no_resize s_col_no_bgcolor s_website_form_multiple"
+                                                                 data-name="Help us get you a quick reply-"
+                                                                 data-display="horizontal">
+                                                                <div class="checkbox col-12 col-lg-4 col-md-6">
+                                                                    <div class="form-check">
+                                                                        <input type="checkbox"
+                                                                               class="s_website_form_input form-check-input"
+                                                                               id="otr1j52vzjqc0"
+                                                                               name="Help us get you a quick reply-"
+                                                                               value="Info about a part on our website"
+                                                                               required="1"/>
+                                                                        <label class="form-check-label s_website_form_check_label"
+                                                                               for="otr1j52vzjqc0">
+                                                                            Info about a part on our website
+                                                                        </label>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="checkbox col-12 col-lg-4 col-md-6">
+                                                                    <div class="form-check">
+                                                                        <input type="checkbox"
+                                                                               class="s_website_form_input form-check-input"
+                                                                               id="otr1j52vzjqc1"
+                                                                               name="Help us get you a quick reply-"
+                                                                               value="Special Order a part"
+                                                                               required="1"/>
+                                                                        <label class="form-check-label s_website_form_check_label"
+                                                                               for="otr1j52vzjqc1">
+                                                                            Special Order a part
+                                                                        </label>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="checkbox col-12 col-lg-4 col-md-6">
+                                                                    <div class="form-check">
+                                                                        <input type="checkbox"
+                                                                               class="s_website_form_input form-check-input"
+                                                                               id="otr1j52vzjqc2"
+                                                                               name="Help us get you a quick reply-"
+                                                                               value="Can I pick up my order?"
+                                                                               required="1"/>
+                                                                        <label class="form-check-label s_website_form_check_label"
+                                                                               for="otr1j52vzjqc2">
+                                                                            Can I pick up my order?
+                                                                        </label>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div data-visibility-condition="" data-visibility-between=""
+                                                     data-type="text" data-name="Field"
+                                                     class="form-group s_website_form_field col-12 s_website_form_custom">
+                                                    <div class="row s_col_no_resize s_col_no_bgcolor">
+                                                        <label class="col-form-label col-sm-auto s_website_form_label "
+                                                               style="width: 200px" for="on4xgmlqf1r">
+                                                            <span class="s_website_form_label_content">Message Details
+                                                            </span>
+                                                        </label>
+                                                        <div class="col-sm">
+                                                            <textarea class="form-control s_website_form_input"
+                                                                      name="Message Details"
+                                                                      placeholder="Include Make, Model, Year of the vehicle you're shopping for:"
+                                                                      id="on4xgmlqf1r" rows="6"/>
+                                                            <div class="s_website_form_field_description small form-text text-muted">
+                                                                Describe your field here.
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="form-group s_website_form_field col-12    s_website_form_dnone"
+                                                     data-name="Field">
+                                                    <div class="row s_col_no_resize s_col_no_bgcolor">
+                                                        <label class="col-form-label col-sm-auto s_website_form_label "
+                                                               style="width: 200px">
+                                                            <span class="s_website_form_label_content"/>
+                                                        </label>
+                                                        <div class="col-sm">
+                                                            <input type="hidden"
+                                                                   class="form-control s_website_form_input"
+                                                                   name="email_to" value="bill@slickwillysparts.com"/>
+                                                            <div class="s_website_form_field_description small form-text text-muted">
+                                                                Separate email addresses with a comma.
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="form-group col-12 s_website_form_submit"
+                                                     data-name="Submit Button">
+                                                    <div style="width: 200px;" class="s_website_form_label"/>
+                                                    <a href="#" role="button"
+                                                       class="btn btn-primary btn-lg s_website_form_send custom-color-btn-primary">Submit
+                                                    </a>
+                                                    <span id="s_website_form_result"/>
+                                                </div>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </section>
+                            </div>
+                            <!-- <div class="col-lg-4 mt-4 mt-lg-0 o_colored_level" data-original-title="" title="" aria-describedby="tooltip656400">
+                              <ul class="list-unstyled mb-0 pl-2">
+                                <li style="text-align: center;"><img class="img-fluid o_we_custom_image" src="/web/image/430-b5cdfd28/Slick%20Willy%27s%20Logo%20T-Shirt%20Version%5B2305843009215013118%5D.png" alt="" data-original-id="430" data-original-src="/web/image/430-b5cdfd28/Slick%20Willy%27s%20Logo%20T-Shirt%20Version%5B2305843009215013118%5D.png" data-mimetype="image/png" data-original-title="" title="" aria-describedby="tooltip975855" loading="lazy"/>SLICK WILLY'S CLASSIC</li>
+                                <li style="text-align: center;">ROD &amp;amp; TRUCK PARTS<br/></li>
+                                <li>
+                                  <i class="fa fa-map-marker fa-fw mr-2"/>
+                                  <p>1451 RUTHERFORD ROAD, MARION, NORTH CAROLINA 28752, UNITED STATES</p>
+                                  <span class="o_force_ltr"/>
+                                </li>
+                                <li>
+                                  <i class="fa fa-phone fa-fw mr-2"/>
+                                  <span class="o_force_ltr">+1
+                                  <a href="tel:8285590813">828-559-0813</a><br/></span>
+                                </li>
+                                <li>
+                                  <i class="fa fa-1x fa-fw fa-envelope mr-2"/>
+                                  <span>
+                                    <a href="mailto:info@yourcompany.example.com" data-original-title="" title="">bill@slickwillysparts.com</a>
+                                  </span>
+                                </li>
+                              </ul>
+                            </div> -->
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </t>
+    </template>
+
+    <template id="product_terms_and_conditions_inherit" inherit_id="website_sale.product_terms_and_conditions"
+              name="website_sale.product_custom_text">
+        <xpath expr="//small/a" position="before">
+            <form>
+                <p style="text-align: left">
+                    <input type="hidden" name="product_id" t-att-value="product_variant.id"/>
+                    <input type="hidden" name="product_name" t-att-value="product_variant.name"/>
+                    <input type="hidden" name="return_url" t-att-value="product.website_url"/>
+
+                    <t t-set="partsync_eCommerce_filtering" t-value="product and product._get_pef()"/>
+                    <t t-if="partsync_eCommerce_filtering">
+                        <button class="mb-2 btn btn-fill-primary rounded-circle btn-sm custom-color-btn-primary js_request_info_btn"
+                            t-att-data-product_id="product_variant.id" t-att-data-product_name="product_variant.name"
+                            t-att-data-return_url="product.website_url">
+                            Request Product Information
+                        </button>
+                    </t>
+                </p>
+            </form>
+        </xpath>
+
+    </template>
+</odoo>

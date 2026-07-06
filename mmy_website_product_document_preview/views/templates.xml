@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="product_document_preview_link" inherit_id="website_sale.product">
+        <!-- Change the icon to an eye -->
+        <xpath expr="//div[@id='product_documents']//t[@t-set='icon']" position="attributes">
+            <attribute name="t-value">attachment_sudo.type == 'url' and 'fa-link' or 'fa-eye'</attribute>
+        </xpath>
+        <!-- Ensure target is _self since JS will handle the preview in a modal -->
+        <xpath expr="//div[@id='product_documents']//t[@t-set='target']" position="attributes">
+            <attribute name="t-value">attachment_sudo.type == 'url' and '_blank' or '_self'</attribute>
+        </xpath>
+        <xpath expr="//div[@id='product_documents']//a" position="replace">
+            <div class="list-group-item d-flex align-items-center justify-content-between gap-3">
+                <a
+                    class="o_product_document_preview d-flex align-items-center flex-grow-1 text-decoration-none text-reset"
+                    t-att-data-previewable="attachment_sudo.type != 'url' and 'true' or 'false'"
+                    t-att-href="attachment_sudo.type == 'url' and attachment_sudo.url or ('/shop/' + slug(product) + '/document/' + str(document_sudo.id) + '/preview')"
+                    t-att-target="target">
+                    <i t-att-class="'fa ' + icon + ' me-2'"/>
+                    <span class="text-break">
+                        <t t-out="attachment_sudo.name"/>
+                    </span>
+                </a>
+                <a
+                    t-if="attachment_sudo.type != 'url'"
+                    class="btn btn-sm btn-outline-secondary flex-shrink-0"
+                    t-att-href="'/shop/' + slug(product) + '/document/' + str(document_sudo.id)"
+                    title="Download">
+                    <i class="fa fa-download"/>
+                </a>
+            </div>
+        </xpath>
+    </template>
+</odoo>

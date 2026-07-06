@@ -1,0 +1,20 @@
+.category-container {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    /*justify-content: space-between !important;*/
+}
+
+.category-item {
+    background-color: #6EA8FE; /* Blue background */
+    color: #212529; /* White text */
+    padding: 6px 6px; /* Padding for spacing */
+    margin: 5px; /* Margin between items */
+    border-radius: 5px; /* Rounded corners */
+    text-align: center; /* Center text */
+    transition: background-color 0.3s; /* Smooth transition for hover effect */
+}
+
+.category-name {
+    font-weight: bold; /* Bold text */
+    text-decoration: none; /* Remove underline */
+}

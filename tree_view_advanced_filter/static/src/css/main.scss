@@ -1,0 +1,71 @@
+.tree_search_item {
+    cursor: pointer;
+}
+
+
+.tree_search_item .selected a:before {
+    font-family: FontAwesome;
+    position: absolute;
+    left: 10px;
+    top: 10px;
+}
+
+input.input_text{
+    transition: all 0.3s ease;
+}
+
+.search_div{
+	display: flex;
+    align-items: center;
+    border: 1px solid #1a4040;
+    font-size: 15px !important;
+    border-radius: 8px;
+    text-align: center;
+    overflow: hidden;
+    padding: 2px;
+}
+.input_text{
+	flex: 2;
+	border: none!important;
+}
+.search_button{
+	margin: 0px 0px;
+	border:none
+}
+.search_button:hover{
+    color: blueviolet;
+}
+.remove_button{
+	border:none
+}
+.remove_button:hover{
+    color: indianred;
+}
+.hidden_button{
+display:none
+}
+.table_layout
+{
+table-layout:auto
+}
+
+.auto-overflow {
+    overflow: auto !important;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.auto-overflow::-webkit-scrollbar {
+    display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.auto-overflow {
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
+}
+
+.min-wp-50 {
+    min-width: 50px !important;
+}

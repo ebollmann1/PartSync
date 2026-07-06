@@ -1,0 +1,13 @@
+<odoo>
+    <data noupdate="1">
+
+        <record id="seq_product_internal_ref_category" model="ir.sequence">
+            <field name="name">Product Internal Reference - Category</field>
+            <field name="code">product.internal.ref.category</field>
+            <field name="prefix"></field>
+            <field name="padding">6</field>
+            <field name="number_next">1</field>
+        </record>
+
+    </data>
+</odoo>

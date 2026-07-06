@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_order_form_vehicle_info_inherited" model="ir.ui.view">
+        <field name="name">sale.order.from</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <field name="show_vehicle_page" invisible="1"/>
+                <page name="vehicle_information" string="Vehicle Information" invisible="not show_vehicle_page">
+                    <field name="vehicle_info_ids">
+                        <list string="Vehicle Platform">
+                            <field name="tag"/>
+                            <field name="state"/>
+                            <field name="mileage"/>
+                            <field name="make"/>
+                            <field name="model"/>
+                            <field name="year"/>
+                            <field name="submodel"/>
+                            <field name="rear_wheels"/>
+                        </list>
+                        <form>
+                            <sheet>
+                                <group>
+                                    <group>
+                                        <field name="tag"/>
+                                        <field name="state"/>
+                                        <field name="mileage"/>
+                                        <!-- <field name="fitmen_master_id"/> -->
+                                        <!-- <field name="make_id"/> -->
+                                        <field name="make"/>
+                                        <field name="model"/>
+                                        <field name="year"/>
+                                        <field name="submodel"/>
+                                    </group>
+                                    <group>
+                                        <field name="tire_size_front"/>
+                                        <field name="tire_size_rear"/>
+                                        <field name="engine_type"/>
+                                        <field name="vin_number"/>
+                                    </group>
+                                </group>
+                            </sheet>
+                        </form>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

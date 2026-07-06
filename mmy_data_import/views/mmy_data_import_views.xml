@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_mmy_data_import_form" model="ir.ui.view">
+        <field name="name">mmy.data.import.form</field>
+        <field name="model">mmy.data.import</field>
+        <field name="arch" type="xml">
+            <form string="MMY Data Import">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="file" filename="file_name"/>
+                            <field name="model_id"/>
+                            <field name="batch_row_size"/>
+                        </group>
+                        <group>
+                            <!-- TO update record based on field data -->
+                            <field name="update_existing_if_any" invisible="not model_id"/>
+                            <field name="compare_existing_field_id" invisible="not update_existing_if_any" required="update_existing_if_any"/>
+                            <field name="compare_related_model" invisible="not compare_existing_field_id or compare_existing_field_ttype not in ['one2many', 'many2many', 'many2one']"/>
+                            <field name="compare_related_field_id" invisible="not compare_existing_field_id or compare_existing_field_ttype not in ['one2many', 'many2many', 'many2one']" required="compare_existing_field_id.ttype == 'one2many'"/>
+                        </group>
+                    </group>
+
+                    <button name="action_load_excel"
+                            type="object"
+                            string="Load Excel"
+                            class="btn-primary"
+                            invisible="not file or not model_id"
+                    />
+                    <button name="action_queue_import"
+                            type="object"
+                            string="Import Data"
+                            class="ms-3 btn-primary"
+                            invisible="not file or not model_id"
+                    />
+
+                    <field name="line_ids">
+                        <list editable="bottom" create="false" delete="false">
+                            <field name="excel_header" readonly="1"/>
+                            <field name="model_field_id" string="Map to Field"/>
+                            <field name="related_model" readonly="1"/>
+                            <field name="related_field_id" string="Map to related field"/>
+                            <field name="related_model_m2o" column_invisible="true"/>
+                            <field name="search_and_select" optional="true"/>
+                            <field name="include_column"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_mmy_data_import_tree" model="ir.ui.view">
+        <field name="name">mmy.data.import.tree</field>
+        <field name="model">mmy.data.import</field>
+        <field name="arch" type="xml">
+            <list string="MMY Data Imports">
+                <field name="file_name"/>
+                <field name="model_id"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_mmy_data_import" model="ir.actions.act_window">
+        <field name="name">MMY Data Import</field>
+        <field name="res_model">mmy.data.import</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Upload Excel files and import data into any model.
+            </p>
+        </field>
+    </record>
+
+    <!-- Root Menu -->
+    <menuitem
+            id="menu_mmy_data_import_root"
+            name="MMY Data Import"
+            web_icon="mmy_data_import,static/description/img.png"
+            sequence="80"
+    />
+
+    <!-- Sub Menu -->
+    <menuitem
+            id="menu_mmy_data_import"
+            name="MMY Data Import"
+            parent="menu_mmy_data_import_root"
+            action="action_mmy_data_import"
+            sequence="10"
+    />
+
+</odoo>

@@ -1,0 +1,2 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_update_product_attribute,update.product.attribute,model_update_product_attribute,,1,1,1,1

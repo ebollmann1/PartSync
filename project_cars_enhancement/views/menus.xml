@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <menuitem id="mmy_menu_root"
+        name="MMY Applications"
+        web_icon="project_cars_enhancement,static/description/icon.png"
+        active="True"
+        sequence="30">
+        
+        <menuitem id="mmy_fiftment_management_menu"
+            name="MMY Fitment Management"
+            sequence="10"/>
+    </menuitem>
+
+    <menuitem id="menu_fitment_make"
+            name="Make Validation Table"
+            action="project_cars_enhancement.fitment_make_action"
+            parent="project_cars_enhancement.mmy_fiftment_management_menu" sequence="10"/>
+
+    <menuitem id="menu_fitment_model"
+            name="Model Validation Table"
+            action="project_cars_enhancement.fitment_model_action"
+            parent="project_cars_enhancement.mmy_fiftment_management_menu" sequence="15"/>
+
+    <menuitem id="menu_fitment_year"
+            name="Year Validation Table"
+            action="project_cars_enhancement.fitment_year_action"
+            parent="project_cars_enhancement.mmy_fiftment_management_menu" sequence="20"/>
+
+    <menuitem id="menu_fitment_submodel"
+            name="Submodel Validation Table"
+            action="project_cars_enhancement.fitment_submodel_action"
+            parent="project_cars_enhancement.mmy_fiftment_management_menu" sequence="25"/>
+
+    <menuitem id="menu_fitment_rear_wheels"
+            name="Wheel Configuration Validation Table"
+            action="project_cars_enhancement.fitment_rear_wheels_action"
+            parent="project_cars_enhancement.mmy_fiftment_management_menu" sequence="26"/>
+
+    <menuitem id="menu_vehicle_patform"
+            name="Platform Validation Table"
+            action="project_cars_enhancement.vehicle_patform_action"
+            parent="project_cars_enhancement.mmy_fiftment_management_menu" sequence="30"/>
+
+    <menuitem id="menu_fitment_master"
+            name="Vehicle Make, Model, Year Maintenance"
+            action="project_cars_enhancement.fitment_master_action"
+            parent="project_cars_enhancement.mmy_fiftment_management_menu" sequence="35"/>
+
+    <menuitem id="menu_vehicle_information"
+            name="Vehicle Information"
+            action="project_cars_enhancement.vehicle_information_action"
+            parent="project_cars_enhancement.mmy_fiftment_management_menu" sequence="40"/>
+
+    <menuitem id="menu_customer_product_fitment_mapping_master"
+            name="Product Fitment Mapping"
+            action="project_cars_enhancement.customer_product_master_action"
+            parent="project_cars_enhancement.mmy_fiftment_management_menu" sequence="1"/>
+
+    <menuitem name="Import Product Fitment Mapping" id="menu_import_customer_product_master_mmy_app"
+                parent="project_cars_enhancement.mmy_fiftment_management_menu" 
+                action="project_cars_enhancement.action_import_customer_product_master"
+                sequence="55"/>
+
+    <menuitem name="Import Fitment Master" id="menu_import_fitment_master_mmy_app"
+                parent="project_cars_enhancement.mmy_fiftment_management_menu" 
+                action="project_cars_enhancement.action_import_fitment_master"
+                sequence="65"/>
+
+    <menuitem name="Import Fitment Data" id="menu_import_fitment_data_mmy_app"
+            parent="project_cars_enhancement.mmy_fiftment_management_menu" 
+            action="project_cars_enhancement.action_import_fitment_data"
+            sequence="75"/>
+</odoo>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <record id="view_import_ecom_categories" model="ir.ui.view">
+        <field name="name">import.ecom.categories.form</field>
+        <field name="model">import.ecom.categories</field>
+        <field name="arch" type="xml">
+            <form string="Import eCommerce Categories">
+                <group>
+                    <field name="filename" invisible="1"/>
+                    <field name="file" filename="filename"/>
+                </group>
+
+                <footer>
+                    <button string="Import" type="object" name="action_import" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_import_ecom_categories" model="ir.actions.act_window">
+        <field name="name">Import eCommerce Categories</field>
+        <field name="res_model">import.ecom.categories</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="ecom_import_category" name="Import Ecom-Category" parent="website_sale.menu_catalog" action="action_import_ecom_categories" sequence="5"/>
+</odoo>

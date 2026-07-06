@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="payment_ebizcharge_crm.FieldMaskingSource">
+        <input
+            type="text"
+            t-ref="inputdate"
+            class="o_input"
+            t-att-value="props.record._initialTextValues.source_key"
+            placeholder="Source Key"
+        />
+    </t>
+</templates>
+
+

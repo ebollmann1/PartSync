@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="project_cars_enhancement.WebsiteCategoryList">
+        <input id="category_search_bar" type="text" placeholder="Enter min. 3 chars" t-att-value="search_bar_value"/>
+        <button class="search_category_by_name btn btn-primary custom-color-btn-primary"> Search </button>
+        <table class="table table-striped category_table tablemanager">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Display Name</th>
+                    <th>Total Products</th>
+                </tr>
+            </thead>
+            <tbody>
+                <t t-foreach="categories" t-as="category" t-key="category['id']">
+                    <tr class="category_list" t-att-id="category['id']" t-att-url="category['url']" style="cursor:pointer;">
+                        <td>
+                            <t t-esc="category['name']"/>
+                        </td>
+                        <td>
+                            <t t-esc="category['display_name']" t-att-href="category['url']"/>
+                        </td>
+                        <td>
+                            <t t-esc="category['product_count']" t-att-href="category['url']"/>
+                        </td>
+                    </tr>
+                </t>
+            </tbody>
+        </table>
+    </t>
+</templates>

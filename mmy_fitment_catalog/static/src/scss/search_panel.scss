@@ -1,0 +1,81 @@
+.mmy_fitment_panel {
+    padding: 30px 12px 6px;
+    border-bottom: 1px solid #ddd;
+
+    .mmy_row {
+        margin-bottom: 10px;
+
+        label {
+            display: block;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #555;
+            margin-bottom: 4px;
+        }
+    }
+
+    select {
+        width: 100%;
+        padding: 6px 28px 6px 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 13px;
+        color: #333;
+        background-color: #fff;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+        cursor: pointer;
+        transition: border-color 0.15s ease;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        appearance: none;
+
+        &:hover:not(:disabled) {
+            border-color: #e8490f;
+        }
+
+        &:focus {
+            outline: none;
+            border-color: #e8490f;
+            box-shadow: 0 0 0 2px rgba(232, 73, 15, 0.15);
+        }
+
+        &:disabled {
+            background-color: #f5f5f5;
+            color: #bbb;
+            cursor: not-allowed;
+            border-color: #e0e0e0;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ccc' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+        }
+
+        &.mmy_loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+    }
+}
+
+.mmy_clear_all_btn {
+    display: block !important;
+    width: calc(100% - 24px) !important;
+    margin: 4px 12px 12px !important;
+    padding: 8px 14px !important;
+    background-color: #e8490f !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 5px !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    cursor: pointer !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.6px !important;
+    text-align: center !important;
+    transition: background-color 0.15s ease !important;
+
+    &:hover {
+        background-color: #c73a09 !important;
+    }
+}

@@ -1,0 +1,384 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_mmyauto_apps"
+              name="MMY Apps"
+              parent="stock.menu_stock_root" sequence="77"/>
+
+    <!-- vehicle.platform -->
+    <record id="vehicle_patform_form_view" model="ir.ui.view">
+        <field name="name">vehicle.platform.form</field>
+        <field name="model">vehicle.platform</field>
+        <field name="arch" type="xml">
+            <form string="Vehicle Platform">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                        </group>
+                        <group>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="vehicle_patform_tree_view" model="ir.ui.view">
+        <field name="name">vehicle.platform.tree</field>
+        <field name="model">vehicle.platform</field>
+        <field name="arch" type="xml">
+            <list string="Vehicle Platform">
+                <field name="name" required="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="vehicle_patform_action" model="ir.actions.act_window">
+        <field name="name">Vehicle Platform</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">vehicle.platform</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" eval="False"/>
+    </record>
+
+    <!-- fitment_year -->
+    <record id="fitment_year_form_view" model="ir.ui.view">
+        <field name="name">fitment.year.form</field>
+        <field name="model">fitment.year</field>
+        <field name="arch" type="xml">
+            <form string="Year">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                        </group>
+                        <group>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="fitment_year_tree_view" model="ir.ui.view">
+        <field name="name">fitment.year.tree</field>
+        <field name="model">fitment.year</field>
+        <field name="arch" type="xml">
+            <list string="Year">
+                <field name="name" required="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="fitment_year_action" model="ir.actions.act_window">
+        <field name="name">Fitment Year</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">fitment.year</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" eval="False"/>
+    </record>
+
+    <!-- fitment.make -->
+    <record id="fitment_make_form_view" model="ir.ui.view">
+        <field name="name">fitment.make.form</field>
+        <field name="model">fitment.make</field>
+        <field name="arch" type="xml">
+            <form string="Make">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                        </group>
+                        <group>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="fitment_make_tree_view" model="ir.ui.view">
+        <field name="name">fitment.make.tree</field>
+        <field name="model">fitment.make</field>
+        <field name="arch" type="xml">
+            <list string="Make">
+                <field name="name" required="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="fitment_make_action" model="ir.actions.act_window">
+        <field name="name">Fitment Make</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">fitment.make</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" eval="False"/>
+    </record>
+
+    <!-- fitment.model -->
+    <record id="fitment_model_form_view" model="ir.ui.view">
+        <field name="name">fitment.model.form</field>
+        <field name="model">fitment.model</field>
+        <field name="arch" type="xml">
+            <form string="Model">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                        </group>
+                        <group>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="fitment_model_tree_view" model="ir.ui.view">
+        <field name="name">fitment.model.tree</field>
+        <field name="model">fitment.model</field>
+        <field name="arch" type="xml">
+            <list string="Model">
+                <field name="name" required="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="fitment_model_action" model="ir.actions.act_window">
+        <field name="name">Fitment Model</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">fitment.model</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" eval="False"/>
+    </record>
+
+    <!-- fitment.submodel -->
+    <record id="fitment_submodel_form_view" model="ir.ui.view">
+        <field name="name">fitment.submodel.form</field>
+        <field name="model">fitment.submodel</field>
+        <field name="arch" type="xml">
+            <form string="Submodel">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                        </group>
+                        <group>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="fitment_submodel_tree_view" model="ir.ui.view">
+        <field name="name">fitment.submodel.tree</field>
+        <field name="model">fitment.submodel</field>
+        <field name="arch" type="xml">
+            <list string="Submodel">
+                <field name="name" required="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="fitment_submodel_action" model="ir.actions.act_window">
+        <field name="name">Fitment Submodel</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">fitment.submodel</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" eval="False"/>
+    </record>
+
+    <!-- fitment.rear.wheels -->
+    <record id="fitment_rear_wheels_form_view" model="ir.ui.view">
+        <field name="name">fitment.rear.wheels.form</field>
+        <field name="model">fitment.rear.wheels</field>
+        <field name="arch" type="xml">
+            <form string="Wheel Configuration">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="fitment_rear_wheels_tree_view" model="ir.ui.view">
+        <field name="name">fitment.rear.wheels.tree</field>
+        <field name="model">fitment.rear.wheels</field>
+        <field name="arch" type="xml">
+            <list string="Wheel Configuration">
+                <field name="name" required="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="fitment_rear_wheels_action" model="ir.actions.act_window">
+        <field name="name">Fitment Wheel Configuration</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">fitment.rear.wheels</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" eval="False"/>
+    </record>
+
+    <!-- fitment.master -->
+    <record id="fitment_master_form_view" model="ir.ui.view">
+        <field name="name">fitment.master.form</field>
+        <field name="model">fitment.master</field>
+        <field name="arch" type="xml">
+            <form string="Fitment Master">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="make_id" required="1"/>
+                            <field name="model_id" required="1"/>
+                            <field name="year_id" required="1"/>
+                            <field name="submodel_id"/>
+                            <field name="rear_wheels_id"/>
+                            <field name="generation"/>
+                            <field name="fitment_class"/>
+                        </group>
+                        <group>
+                            <field name="vehicle_platform_id"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="fitment_master_tree_view" model="ir.ui.view">
+        <field name="name">fitment.master.tree</field>
+        <field name="model">fitment.master</field>
+        <field name="arch" type="xml">
+            <list string="Fitment Master">
+                <field name="make_id" required="1"/>
+                <field name="model_id" required="1"/>
+                <field name="year_id" required="1"/>
+                <field name="submodel_id"/>
+                <field name="rear_wheels_id"/>
+                <field name="generation"/>
+                <field name="fitment_class"/>
+                <field name="vehicle_platform_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_fitment_master_search" model="ir.ui.view">
+        <field name="name">fitment.master.search</field>
+        <field name="model">fitment.master</field>
+        <field name="arch" type="xml">
+            <search string="Fitment Master">
+                <field name="make_id" string="Make" filter_domain="[('make_id','ilike', self)]"/>
+                <field name="model_id" string="Model" filter_domain="[('model_id','ilike', self)]"/>
+                <field name="year_id" string="Year" filter_domain="[('year_id','ilike', self)]"/>
+                <field name="submodel_id" string="Submodel" filter_domain="[('submodel_id','ilike', self)]"/>
+                <field name="rear_wheels_id" string="Wheel Configuration"
+                       filter_domain="[('rear_wheels_id','ilike', self)]"/>
+                <group>
+                    <filter string="Make" name="make_id" domain="[]" context="{'group_by':'make_id'}"/>
+                    <filter string="Model" name="model_id" domain="[]" context="{'group_by':'model_id'}"/>
+                    <filter string="year" name="year_id" domain="[]" context="{'group_by':'year_id'}"/>
+                    <filter string="Submodel" name="submodel_id" domain="[]" context="{'group_by':'submodel_id'}"/>
+                    <filter string="Wheel Configuration" name="rear_wheels_id" domain="[]"
+                            context="{'group_by':'rear_wheels_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="fitment_master_action" model="ir.actions.act_window">
+        <field name="name">Fitment Master</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">fitment.master</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_fitment_master_search"/>
+    </record>
+
+    <!-- customer.product.master -->
+    <record id="customer_product_master_form_view" model="ir.ui.view">
+        <field name="name">customer.product.master.form</field>
+        <field name="model">customer.product.master</field>
+        <field name="arch" type="xml">
+            <form string="Customer Product Master">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="cpm_validation_id" required="1" options="{'no_create': True}"/>
+                            <field name="product_id" required="1"/>
+                            <field name="product_template_id" force_save="1"/>
+                            <field name="part_terminology"/>
+                            <field name="company_id" invisible="1"/>
+                        </group>
+                        <group>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page name="Fitments" string="Fitments">
+                            <field name="fitment_ids" required="1">
+                                <list string="Fitment Master" create="0">
+                                    <field name="make_id" required="1"/>
+                                    <field name="model_id" required="1"/>
+                                    <field name="year_id" required="1"/>
+                                    <field name="submodel_id"/>
+                                    <field name="rear_wheels_id"/>
+                                    <field name="generation"/>
+                                    <field name="fitment_class"/>
+                                    <field name="vehicle_platform_id"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="customer_product_master_tree_view" model="ir.ui.view">
+        <field name="name">customer.product.master.tree</field>
+        <field name="model">customer.product.master</field>
+        <field name="arch" type="xml">
+            <list string="Customer Product Master" duplicate="0">
+                <field name="cpm_validation_id"/>
+                <field name="product_id"/>
+                <field name="company_id" invisible="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_customer_product_master_search" model="ir.ui.view">
+        <field name="name">customer.product.master.search</field>
+        <field name="model">customer.product.master</field>
+        <field name="arch" type="xml">
+            <search string="Product Fitment Mapping">
+                <field name="cpm_validation_id" string="Brand/Customer Code" filter_domain="[('cpm_validation_id','ilike', self)]"/>
+                <field name="product_id" string="Product" filter_domain="[('product_id','ilike', self)]"/>
+                <field name="fitment_ids" string="Make" filter_domain="[('fitment_ids.make_id.name', 'ilike', self)]"/>
+                <field name="fitment_ids" string="Model" filter_domain="[('fitment_ids.model_id.name', 'ilike', self)]"/>
+                <field name="fitment_ids" string="Year" filter_domain="[('fitment_ids.year_id.name', 'ilike', self)]"/>
+                <field name="fitment_ids" string="Submodel" filter_domain="[('fitment_ids.submodel_id.name', 'ilike', self)]"/>
+                <field name="fitment_ids" string="Wheel Configuration" filter_domain="[('fitment_ids.rear_wheels_id.name', 'ilike', self)]"/>
+                 <group>
+                    <filter string="Brand/Customer Code" name="make_idcpm_validation_ids" context="{'group_by':'cpm_validation_id'}"/>
+                    <filter string="Product" name="product_id" context="{'group_by':'product_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="customer_product_master_action" model="ir.actions.act_window">
+        <field name="name">Product Fitment Mapping</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">customer.product.master</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_customer_product_master_search"/>
+    </record>
+
+    <menuitem id="menu_customer_product_master"
+              name="Product Fitment Mapping"
+              action="customer_product_master_action"
+              parent="menu_mmyauto_apps" sequence="77"/>
+</odoo>
