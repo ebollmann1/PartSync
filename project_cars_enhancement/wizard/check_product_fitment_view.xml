@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="check_product_fitment_form" model="ir.ui.view">
+        <field name="name">check.product.fitment.form</field>
+        <field name="model">check.product.fitment</field>
+        <field name="arch" type="xml">
+            <form string="Customer Product Master">
+                <field name="line_ids">
+                    <list ebitable="bottom" create="0" delete="0">
+                        <field name="old_product_id" readonly="1" force_save="1"/>
+                        <field name="new_product_id"/>
+                    </list>
+                </field>
+            </form>
+        </field>
+    </record>
+</odoo>

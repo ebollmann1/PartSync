@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <data>
+        <record id="product_attribute_view_form_view_inh" model="ir.ui.view">
+            <field name="name">product.attribute.form</field>
+            <field name="model">product.attribute</field>
+            <field name="inherit_id" ref="product.product_attribute_view_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='create_variant']" position="after">
+                    <field name="ir_segment"/>
+                </xpath>
+                <xpath expr="//page//field[@name='value_ids']//list//field[@name='default_extra_price']" position="after">
+                    <field name="i_r_segment_value"/>
+                </xpath>
+            </field>
+        </record>
+        <record id="attribute_tree_view_view_inh" model="ir.ui.view">
+            <field name="name">product.attribute.list</field>
+            <field name="model">product.attribute</field>
+            <field name="inherit_id" ref="product.attribute_tree_view"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='display_type']" position="before">
+                    <field name="ir_segment"/>
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>

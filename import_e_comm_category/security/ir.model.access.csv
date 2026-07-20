@@ -1,0 +1,2 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_import_ecom_category,access.import.ecom.category,model_import_ecom_categories,,1,1,1,1

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="product_public_category_form_view_add_fields" model="ir.ui.view">
+        <field name="name">product.public.category.form.add.fields</field>
+        <field name="model">product.public.category</field>
+        <field name="inherit_id" ref="website_sale.product_public_category_form_view"/>
+        <field name="arch" type="xml">
+            <field name="website_id" position="after">
+                <field name="position"/>
+                <field name="partterminology"/>
+                <field name="subcategory"/>
+                <field name="category"/>
+                <field name="code_master"/>
+            </field>
+        </field>
+    </record>
+
+    <record id="product_attribute_view_form_inherit" model="ir.ui.view">
+		<field name="name">product.attribute.form.view</field>
+		<field name="model">product.attribute</field>
+		<field name="inherit_id" ref="product.product_attribute_view_form"/>
+		<field name="arch" type="xml">
+			<xpath expr='//field[@name="create_variant"]' position="after">
+                <field name="show_all_attribute" invisible="1"/>
+				<field name="show_all_attribute_values" invisible="not show_all_attribute"/>
+			</xpath>
+		</field>
+	</record>
+
+	<record id="attribute_tree_view_inherit" model="ir.ui.view">
+		<field name="name">product.attribute.tree.view</field>
+		<field name="model">product.attribute</field>
+		<field name="inherit_id" ref="product.attribute_tree_view"/>
+		<field name="arch" type="xml">
+			<xpath expr='//field[@name="create_variant"]' position="after">
+				<field name="show_all_attribute_values"/>
+			</xpath>
+		</field>
+	</record>
+</odoo>

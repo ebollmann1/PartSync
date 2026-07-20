@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+     <t t-name="payment_ebizcharge_crm.FormControlPanelEbiz" t-inherit="web.ControlPanel" t-inherit-mode="primary" owl="1">
+        <xpath expr="//div[hasclass('o_control_panel')]" position="replace">
+             <div  class="o_control_panel d-flex flex-column gap-3 px-3 pt-2 pb-3" t-ref="root" data-command-category="actions">
+            </div>
+        </xpath>
+    </t>
+
+</templates>   

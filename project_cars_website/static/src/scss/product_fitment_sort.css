@@ -1,0 +1,23 @@
+table#fitment_data_table {
+		font-size: 1em;
+		border-collapse: collapse;
+		margin: 0 auto
+	}
+	table#fitment_data_table th:hover,
+	table#fitment_data_table th.sorted {
+		background: #d4d4d4;
+	}
+
+	table#fitment_data_table th.no-sort,
+	table#fitment_data_table th.no-sort:hover {
+		background: #f4f4f4;
+		cursor: not-allowed;
+	}
+
+	table#fitment_data_table th.sorted.ascending:after {
+		content: "  \2191";
+	}
+
+	table#fitment_data_table th.sorted.descending:after {
+		content: " \2193";
+	}

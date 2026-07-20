@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_mmy_import,mmy.import,model_mmy_data_import,,1,1,1,1
+access_mmy_import_line,mmy.import.line,model_mmy_data_import_line,,1,1,1,1

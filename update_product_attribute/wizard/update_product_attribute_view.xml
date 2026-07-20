@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <record id="view_update_product_attribute" model="ir.ui.view">
+        <field name="name">update.product.attribute.form</field>
+        <field name="model">update.product.attribute</field>
+        <field name="arch" type="xml">
+            <form string="Update Product Attribute">
+                <group>
+                    <field name="filename" invisible="1"/>
+                    <field name="file" filename="filename"/>
+                </group>
+
+                <footer>
+                    <button string="Update" type="object" name="action_update" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_update_product_attribute" model="ir.actions.act_window">
+        <field name="name">Update Product Attribute</field>
+        <field name="res_model">update.product.attribute</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_update_product_attribute" parent="sale.product_menu_catalog" action="action_update_product_attribute" sequence="5"/>
+</odoo>

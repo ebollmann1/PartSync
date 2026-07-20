@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="mmy_product_catalog_search_view" model="ir.ui.view">
+        <field name="name">mmy.product.catalog.search.fitment</field>
+        <field name="model">product.product</field>
+        <field name="inherit_id" ref="product.product_view_search_catalog"/>
+        <field name="arch" type="xml">
+
+            <xpath expr="//search/field[@name='name']" position="after">
+                <field name="fitment_make_ids"/>
+                <field name="fitment_model_ids"/>
+                <field name="fitment_year_ids"/>
+                <field name="fitment_submodel_ids"/>
+                <field name="fitment_wheel_ids"/>
+                <field name="fitment_vehicle_platform_ids"/>
+            </xpath>
+
+            <xpath expr="//searchpanel/field[@name='categ_id']" position="before">
+
+                <field name="fitment_make_ids"
+                       string="Make"
+                       icon="fa-industry"
+                       select="multi"
+                       enable_counters="1"
+                       expand="0"/>
+
+                <field name="fitment_model_ids"
+                       string="Model"
+                       icon="fa-car"
+                       select="multi"
+                       enable_counters="1"
+                       expand="0"/>
+
+                <field name="fitment_year_ids"
+                       string="Year"
+                       icon="fa-calendar"
+                       select="multi"
+                       enable_counters="1"
+                       expand="0"/>
+
+                <field name="fitment_submodel_ids"
+                       string="Sub-Model"
+                       icon="fa-sitemap"
+                       select="multi"
+                       enable_counters="1"
+                       expand="0"/>
+
+                <field name="fitment_wheel_ids"
+                       string="Wheel Configuration"
+                       icon="fa-gears"
+                       select="multi"
+                       enable_counters="1"
+                       expand="0"/>
+
+                <field name="fitment_vehicle_platform_ids"
+                       string="Platform"
+                       icon="fa-cubes"
+                       select="multi"
+                       enable_counters="1"
+                       expand="0"/>
+
+            </xpath>
+        </field>
+    </record>
+</odoo>

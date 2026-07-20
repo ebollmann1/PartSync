@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <template id="portal_my_home_menu_vehicle" name="Portal layout : vehicle info" inherit_id="portal.portal_breadcrumbs" priority="25">
+        <xpath expr="//ol[hasclass('o_portal_submenu')]" position="inside">
+            <li t-if="page_name == 'vehicle'" t-attf-class="breadcrumb-item active">
+                Vehicle Information
+            </li>
+        </xpath>
+    </template>
+
+    <template id="portal_my_home_vehicle_info" name="Vehicle Information" customize_show="True" inherit_id="portal.portal_my_home" priority="25">
+        <xpath expr="//div[hasclass('o_portal_docs')]" position="inside">
+            <t t-call="portal.portal_docs_entry">
+                <t t-set="icon" t-value="'/portal_vehicle_info/static/src/img/car.svg'"/>
+                <t t-set="title">Vehicle Information</t>
+                <t t-set="url" t-value="'/my/vehicle_info'"/>
+                <t t-set="text">Vehicle information</t>
+                <t t-set="placeholder_count" t-value="'vehicle_info_count'"/>
+            </t>
+
+        </xpath>
+    </template>
+
+    <template id="portal_vehicle_information" name="User Vehicle Information">
+        <t t-call="portal.portal_layout">
+            <div class="portal_vehicle_information" t-if="partsync_customer_vehicle">
+                <t t-call="portal.portal_table">
+                    <thead>
+                        <tr>
+                            <th class="">Sr No.</th>
+                            <th>Tag</th>
+                            <th>State</th>
+                            <th>Mileage</th>
+                            <th>Make</th>
+                            <th>Model</th>
+                            <th>Year</th>
+                            <th>Submodel</th>
+                            <th>Wheel Configuration</th>
+                            <th/>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <t t-set="vehicle_count" t-value="1"/>
+                        <t t-foreach="vehicle_informations" t-as="vehicle_info">
+                            <tr class="vehicle_info_ids" t-att-id="vehicle_info.id">
+                                <td><t t-esc="vehicle_count"/></td>
+                                <td>
+                                    <input type="text" class="vehicle_tag" t-att-value="vehicle_info.tag" style="border-radius: 5px;width: 130px;"/>
+                                </td>
+                                <td>
+                                    <input type="text" class="vehicle_state" t-att-value="vehicle_info.state" style="border-radius: 5px;width: 130px;"/>
+                                </td>
+                                <td>
+                                    <input type="text" class="vehicle_mileage" t-att-value="vehicle_info.mileage" style="border-radius: 5px;width: 130px;"/>
+                                </td>
+                                <td>
+                                    <select id="vehicle_make" class="vehicle_make" style="border-radius: 5px;width: 130px;">
+                                        <option value="">Select Make</option>
+                                        <t t-foreach="makes" t-as="make">
+                                            <option t-att-value="make[0]" t-att-selected="'selected' if make[0] == vehicle_info.make else None" ><t t-esc="make[1]"/></option>
+                                        </t>
+                                    </select>
+                                </td>
+                                <td>
+                                    <select id="vehicle_model" class="vehicle_model" style="border-radius: 5px;width: 130px;" t-att-disabled="None if vehicle_info.year and vehicle_info.make else 'disabled'">
+                                        <option value="">Select Model</option>
+                                        <t t-foreach="models" t-as="model">
+                                            <option t-att-value="model[0]" t-att-selected="'selected' if model[0] == vehicle_info.model else None"><t t-esc="model[1]"/></option>
+                                        </t>
+                                    </select>
+                                </td>
+                                <td>
+                                    <select id="vehicle_year" class="vehicle_year" style="border-radius: 5px;width: 130px;">
+                                        <option value="">Select Year</option>
+                                        <t t-foreach="years" t-as="year">
+                                            <option t-att-value="year[0]" t-att-selected="'selected' if year[0] == vehicle_info.year else None"><t t-esc="year[1]"/></option>
+                                        </t>
+                                    </select>
+                                </td>
+                                <td>
+                                    <select id="vehicle_submodel" class="vehicle_submodel" style="border-radius: 5px;width: 130px;" t-att-disabled="None if vehicle_info.year and vehicle_info.make and vehicle_info.model else 'disabled'">
+                                        <option value="">Select Submodel</option>
+                                        <t t-foreach="submodels" t-as="submodel">
+                                            <option t-att-value="submodel[0]" t-att-selected="'selected' if submodel[0] == vehicle_info.submodel else None"><t t-esc="submodel[1]"/></option>
+                                        </t>
+                                    </select>
+                                </td>
+                                <td>
+                                    <select id="vehicle_rear_wheels" class="vehicle_rear_wheels" style="border-radius: 5px;width: 130px;" t-att-disabled="None if vehicle_info.year and vehicle_info.make and vehicle_info.model else 'disabled'">
+                                        <option value="">Select Wheel Configuration</option>
+                                        <t t-foreach="rear_wheels" t-as="real_wheel">
+                                            <option t-att-value="real_wheel[0]" t-att-selected="'selected' if real_wheel[0] == vehicle_info.rear_wheels else None"><t t-esc="real_wheel[1]"/></option>
+                                        </t>
+                                    </select>
+                                </td>
+                                <td><i t-att-id="vehicle_info.id" class="fa fa-trash delete_vehicle_info" style="cursor:pointer;"/></td>
+                            </tr>
+                            <t t-set="vehicle_count" t-value="vehicle_count+1"/>
+                        </t>
+                        <span class="vehicle_count d-none"><t t-esc="vehicle_count"/></span>
+                    </tbody>
+                </t>
+                <center t-att-class="'no_vehicle_found_message mt-2' if not vehicle_informations else 'no_vehicle_found_message mt-2 d-none'"><h3>No Vehicle Information Found!.</h3></center>
+                <button class="btn btn-link add_vehicle_info fa fa-plus"> Add Vehicle Info </button>
+                <br/>
+                <button class="mt-4 btn btn-success save_vehicle_info">Save</button>
+            </div>
+        </t>
+    </template>
+
+    <template id="product_attributes_vehicle_info" inherit_id="project_cars_website.website_sale_product_inherit" name="Vehicle Information">
+        <xpath expr="//div[@id='wsale_products_attributes_collapse']/ul" position="before">
+<!--            <t t-set="partsync_customer_vehicle" t-value="products and products._get_partsync_customer_vehicle()"/>-->
+            <t t-set="partsync_customer_vehicle" t-value="products and products._get_partsync_customer_vehicle()"/>
+            <t t-if="partsync_customer_vehicle">
+                <div t-if="request.env.user.partner_id.vehicle_info_ids" id="user_vehicle_info">
+                    <div>
+                        <strong t-esc="Year" class="btn btn-primary custom-color-btn-primary o_products_attributes_title text-uppercase d-block my-2"
+                                style="
+
+                                padding: 6px 6px;
+                                margin: 5px;
+                                border-radius: 5px;
+                                text-align: center;
+                                width: 155px;"
+                        > My Vehicles</strong>
+                    </div>
+                    <select id="user_vehicles" class="custom-select css_attribute_select"
+                            name="user_vehicles" style="width: 200px;border-radius: 5px;">
+                        <option value="">Make-Model-Year-Submodel</option>
+                        <t t-foreach="request.env.user.partner_id.vehicle_info_ids" t-as="vehicle_info">
+                            <option t-att-value="vehicle_info.id" t-att-selected="'selected' if vehicle_info.id == select_vehicle_info else None">
+                                <span t-esc="'%s-%s-%s-%s' %(vehicle_info.make or 'N/A',vehicle_info.model or 'N/A',vehicle_info.year or 'N/A',vehicle_info.submodel or 'N/A')"/>
+                            </option>
+                        </t>
+                        <input id="prev_user_vehicle" type="hidden" name="prev_user_vehicle" value=""/>
+                    </select>
+                    <script>
+                        const selectEl = document.getElementById('user_vehicles');
+                        console.log("=============",selectEl)
+                        const prevInput = document.getElementById('prev_user_vehicle');
+
+                        let previousValue = selectEl.value;
+                        prevInput.value = previousValue;
+
+                        selectEl.addEventListener('change', function() {
+                            prevInput.value = previousValue; // store old value
+                            previousValue = this.value;      // update tracker
+                        });
+                    </script>
+                </div>
+                <div t-if="not request.env.user.partner_id.vehicle_info_ids">
+                    <div>
+                        <t t-if="request.session.uid">
+                            <a href="/my/vehicle_info" class="btn btn-primary custom-color-btn-primary " style="
+
+                                padding: 6px 6px;
+                                margin: 5px;
+                                border-radius: 5px;
+                                text-align: center;
+                                width: 155px;">
+                                My Vehicles
+                            </a>
+                        </t>
+                        <t t-else="">
+                            <a class="btn btn-primary custom-color-btn-primary " href="/web/login" style="
+
+                                padding: 6px 6px;
+                                margin: 5px;
+                                border-radius: 5px;
+                                text-align: center;
+                                width: 155px;">
+                                My Vehicles
+                            </a>
+                        </t>
+
+                    </div>
+                </div>
+            </t>
+        </xpath>
+    </template>
+
+</odoo>

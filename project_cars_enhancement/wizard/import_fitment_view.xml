@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_iimport_fitment_master" model="ir.ui.view">
+        <field name="name">import.fitment.master</field>
+        <field name="model">import.fitment.master</field>
+        <field name="arch" type="xml">
+            <form string="Import Fitment Master">
+                <p>We Import XLS File. Please follow file header name.</p>
+                <p></p>
+                <p>1. Year</p>
+                <p></p>
+                <p>2. Make</p>
+                <p></p>
+                <p>3. Model</p>
+                <p></p>
+                <p>4. Submodel</p>
+                <p></p>
+                <p>5. Wheel Configuration</p>
+                <p></p>
+                <p>6. Vehicle Platform</p>
+                <p></p>
+                <br/>
+                <group>
+                        <field name="xls_file" required="1" filename="filename"/>
+                        <field name="filename" invisible="1"/>
+                </group>
+                <footer>
+                    <button name="import_data" type="object" string="Import"
+                            class="btn-primary custom-color-btn-primary"/>
+                    <button special="cancel" string="OK" class="btn-default"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record model="ir.actions.act_window" id="action_import_fitment_master">
+        <field name="name">Import Fitment Master</field>
+        <field name="res_model">import.fitment.master</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem name="Import Fitment Master" id="menu_import_fitment_master"
+              parent="menu_mmyauto_apps" action="action_import_fitment_master"
+              sequence="200"/>
+</odoo>

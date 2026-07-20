@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <data>
+        <record id="res_config_settings_view_form" model="ir.ui.view">
+            <field name="name">res.config.settings.view.form.inherit.hr</field>
+            <field name="model">res.config.settings</field>
+            <field name="priority" eval="70"/>
+            <field name="inherit_id" ref="website.res_config_settings_view_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//block[@id='website_info_settings']" position="after">
+                    <block title="MMY Configuration (PPF PEF PCI PCV)" id="mmy_configuration" invisible="not show_partsync">
+                        <setting help="PartSync Product Filtering">
+                            <field name="partsync_product_filtering"/>
+                        </setting>
+                        <setting help="PartSync Catalog Interface">
+                            <field name="partsync_customer_import"/>
+                        </setting>
+                        <setting help="PartSync eCommerce Filtering">
+                            <field name="partsync_eCommerce_filtering"/>
+                        </setting>
+                        <setting help="PartSync Customer Vehicle">
+                            <field name="partsync_customer_vehicle"/>
+                        </setting>
+                    </block>
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>

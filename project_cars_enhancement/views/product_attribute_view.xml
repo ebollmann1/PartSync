@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="product_attribute_view_form" model="ir.ui.view">
+        <field name="name">product.attribute.view.form</field>
+        <field name="model">product.attribute</field>
+        <field name="inherit_id" ref="product.product_attribute_view_form"/>
+        <field name="priority">50</field>
+        <field name="arch" type="xml">
+            <field name="create_variant" position="after">
+                <field name="show_attribute_visibility" invisible="1"/>
+                <field name="attribute_visibility" widget="radio" invisible="not show_attribute_visibility"/>
+            </field>
+        </field>
+    </record>
+
+    <record id="attribute_tree_view" model="ir.ui.view">
+        <field name="name">product.attribute.tree</field>
+        <field name="model">product.attribute</field>
+        <field name="priority">50</field>
+        <field name="inherit_id" ref="product.attribute_tree_view"/>
+        <field name="arch" type="xml">
+            <field name="create_variant" position="after">
+                <field name="show_attribute_visibility" invisible="1"/>
+                <field name="attribute_visibility" invisible="not show_attribute_visibility"/>
+            </field>
+        </field>
+    </record>
+
+    <record id="product_template_view_form" model="ir.ui.view">
+        <field name="name">product.template.view.form</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_only_form_view"/>
+        <field name="priority">50</field>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="before">
+                <header>
+                    <button name="sync_fitment_to_variant" string="Assign Fitment In Variant" type="object" class="btn btn-primary custom-color-btn-primary"/>
+                </header>
+            </xpath>
+            <xpath expr="//group[@name='description']" position="after">
+                <group>
+                    <field name="extend_product_description" widget="html"/>
+                </group>
+            </xpath>
+            <xpath expr="//page[@name='sales']" position="inside">
+                <group>
+                    <field name="additional_product_info" widget="html"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_template_property_form_inherited_product_fields" model="ir.ui.view">
+        <field name="name">product.template.view.form</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="stock.view_template_property_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//label[@for='sale_delay']" position="before">
+                <field name="product_height"/>
+                <field name="product_width"/>
+                <field name="product_length"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="product_template_form_view_procurement_button_inherited" model="ir.ui.view">
+        <field name="name">product.template.view.form</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="stock.product_template_form_view_procurement_button"/>
+        <field name="priority">50</field>
+        <field name="arch" type="xml">
+            <div name="button_box" position="inside">
+                <button type="object" name="action_show_fitment_data_template" class="oe_stat_button" icon="fa-list">
+                    <div class="o_field_widget o_stat_info">
+                        <span class="o_stat_value">
+                            <field name="total_fitment_template" widget="statinfo" nolabel="1" class="mr4"/>
+                        </span>
+                        <span class="o_stat_text">Fitments</span>
+                    </div>
+                </button>
+            </div>
+            <xpath expr="//notebook" position="inside">
+                <page name="fitments_page" string="Fitments">
+                    <field name="fitment_ids">
+                        <list>
+                            <field name="make_id" string="Make"/>
+                            <field name="model_id" string="Model"/>
+                            <field name="year_id" string="Year"/>
+                            <field name="submodel_id" string="Submodel"/>
+                            <field name="rear_wheels_id"/>
+                            <field name="vehicle_platform_id" string="Vehicle"/>
+                        </list>
+                        <form>
+                            <group>
+                                <group>
+                                    <field name="make_id" invisible="0" string="Make"/>
+                                    <field name="year_id" invisible="0" string="Year"/>
+                                    <field name="vehicle_platform_id" options="{'no_open': True}"/>
+                                </group>
+                                <group>
+                                    <field name="model_id" invisible="0" string="Model"/>
+                                    <field name="submodel_id" invisible="0" string="Submodel"/>
+                                    <field name="rear_wheels_id" invisible="0"/>
+                                </group>
+                            </group>
+                            <group>
+                            </group>
+                        </form>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="product_normal_form_view_inherited" model="ir.ui.view">
+        <field name="name">product.product.view.form</field>
+        <field name="model">product.product</field>
+        <field name="inherit_id" ref="stock.product_form_view_procurement_button"/>
+        <field name="priority">50</field>
+        <field name="arch" type="xml">
+            <div name="button_box" position="inside">
+                <button type="object" name="action_show_fitment_data" class="oe_stat_button" icon="fa-list">
+                    <div class="o_field_widget o_stat_info">
+                        <span class="o_stat_value">
+                            <field name="total_fitment" widget="statinfo" nolabel="1" class="mr4"/>
+                        </span>
+                        <span class="o_stat_text">Fitments</span>
+                    </div>
+                </button>
+            </div>
+            <xpath expr="//notebook" position="inside">
+                <page name="fitments_page" string="Fitments">
+                    <field name="fitment_ids">
+                        <list>
+                            <field name="make_id" string="Make"/>
+                            <field name="model_id" string="Model"/>
+                            <field name="year_id" string="Year"/>
+                            <field name="submodel_id" string="Submodel"/>
+                            <field name="rear_wheels_id"/>
+                            <field name="vehicle_platform_id" string="Vehicle"/>
+                        </list>
+                        <form>
+                            <group>
+                                <group>
+                                    <field name="make_id" invisible="0" string="Make"/>
+                                    <field name="year_id" string="Year"/>
+                                    <field name="vehicle_platform_id" options="{'no_open': True}"/>
+                                </group>
+                                <group>
+                                    <field name="model_id" invisible="0" string="Model"/>
+                                    <field name="submodel_id" invisible="0" string="Submodel"/>
+                                    <field name="rear_wheels_id" invisible="0"/>
+                                </group>
+                            </group>
+                        </form>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="product_variant_easy_edit_view_inherited" model="ir.ui.view">
+        <field name="name">product.product.view.form.easy</field>
+        <field name="model">product.product</field>
+        <field name="inherit_id" ref="product.product_variant_easy_edit_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//group[@name='sales']" position="after">
+                <group name="fitments" string="Fitments">
+                    <field colspan="2" name="fitment_ids" nolabel="1"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>
