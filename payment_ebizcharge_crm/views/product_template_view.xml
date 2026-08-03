@@ -7,12 +7,15 @@
             <field name="model">product.template</field>
             <field name="inherit_id" ref="product.product_template_only_form_view"/>
             <field name="arch" type="xml">
-                <xpath expr="//header" position="inside">
-                    <field invisible="1" name="auto_sync_button"/>
-                    <field invisible="1" name="ebiz_product_internal_id"/>
-                    <button class="oe_highlight" invisible="auto_sync_button or ebiz_product_internal_id" name="add_update_to_ebiz_ind" string="EBizCharge Upload" type="object"/>
+                <xpath expr="//sheet" position="inside">
+                    <header>
+                        <field invisible="1" name="auto_sync_button"/>
+                        <field invisible="1" name="ebiz_product_internal_id"/>
+                        <button class="oe_highlight" invisible="auto_sync_button or ebiz_product_internal_id" name="add_update_to_ebiz_ind" string="EBizCharge Upload" type="object"/>
+                    </header>
                 </xpath>
                 <field name="type" position="before">
+                    <field invisible="1" name="ebiz_product_internal_id"/>
                     <field domain="['|',('company_ids', 'in', ebiz_company_ids), ('id', 'in', ebiz_profile_ids)]" name="ebiz_profile_id" options="{'no_edit': True, 'no_create': True, 'no_open': True}" readonly="ebiz_product_internal_id != False" string="EBizCharge Merchant Account"/>
                 </field>
                 <field name="barcode" position="after">
@@ -23,8 +26,6 @@
                 </field>
             </field>
         </record>
-
- 
 
         <record id="product_new_action1" model="ir.actions.server">
             <field name="name">EBizCharge Upload</field>

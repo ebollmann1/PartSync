@@ -1,6 +1,4 @@
-
-from odoo import models, api, fields
-import json
+from odoo import models, fields
 from odoo.exceptions import UserError, ValidationError
 from ..models.ebiz_charge import message_wizard
 
@@ -21,10 +19,7 @@ class EmailReceipt(models.TransientModel):
 
     def send_email(self):
         try:
-            instance = None
-            if self.partner_ids.ebiz_profile_id:
-                instance = self.partner_ids.ebiz_profile_id
-
+            instance = self.partner_ids.ebiz_profile_id or None
             if instance and not instance.use_econnect_transaction_receipt:
                 raise UserError(
                     'Configuration required. Please enable eConnect transaction receipts in the integration server.')
@@ -72,59 +67,60 @@ class EmailReceiptBulk(models.TransientModel):
             resp_lines = []
             success = 0
             failed = 0
-            filter_record = self._context.get('transaction_ids')
-            for record in filter_record:
-                resp_line = {}
-                customer_name_up =  record['account_holder']
-                if record['partner_id'] and len(record['partner_id'])>=2:
-                    customer_name_up = record['partner_id'][1]
-                resp_line.update({
-                    'customer_name': customer_name_up,
-                    'customer_id': record['customer_id'],
-                    'ref_num': record['ref_no'],
-                })
-                if record['email_id']:
-                    if '@' in record['email_id'] and '.' in record['email_id']:
-                        instance = self.ebiz_profile_id
+            if self.env.context.get('transaction_ids'):
+                records = self.env['transaction.history'].browse(self.env.context.get('transaction_ids'))
+                for record in records:
+                    resp_line = {}
+                    customer_name_up = record.account_holder
+                    if record.partner_id:
+                        customer_name_up = record.partner_id.name
+                    resp_line.update({
+                        'customer_name': customer_name_up,
+                        'customer_id': record.customer_id,
+                        'ref_num': record.ref_no,
+                    })
+                    if record.email_id:
+                        if '@' in record.email_id and '.' in record.email_id:
+                            instance = self.ebiz_profile_id
 
-                        if instance and not instance.use_econnect_transaction_receipt:
-                            raise UserError(
-                                'Configuration required. Please enable eConnect transaction receipts in the integration server.')
+                            if instance and not instance.use_econnect_transaction_receipt:
+                                raise UserError(
+                                    'Configuration required. Please enable eConnect transaction receipts in the integration server.')
 
-                        ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
-                        form_url = ebiz.client.service.EmailReceipt(**{
-                            'securityToken': ebiz._generate_security_json(),
-                            'transactionRefNum': record['ref_no'],
-                            'receiptRefNum': self.select_template.receipt_id,
-                            'receiptName': self.select_template.name,
-                            'emailAddress': record['email_id'],
-                        })
-                        if form_url.Status == 'Success':
-                            resp_line['status'] = 'Success'
-                            success += 1
-                        elif form_url.Status == 'Failed':
-                            raise UserError('Configuration required. Please enable eConnect transaction receipts in the integration server.')
+                            ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
+                            form_url = ebiz.client.service.EmailReceipt(**{
+                                'securityToken': ebiz._generate_security_json(),
+                                'transactionRefNum': record.ref_no,
+                                'receiptRefNum': self.select_template.receipt_id,
+                                'receiptName': self.select_template.name,
+                                'emailAddress': record.email_id,
+                            })
+                            if form_url.Status == 'Success':
+                                resp_line['status'] = 'Success'
+                                success += 1
+                            elif form_url.Status == 'Failed':
+                                raise UserError('Configuration required. Please enable eConnect transaction receipts in the integration server.')
+                        else:
+                            resp_line['status'] = 'Invalid Email Address!'
+                            failed += 1
                     else:
-                        resp_line['status'] = 'Wrong Email Address!'
+                        resp_line['status'] = 'Email ID Not Found!'
                         failed += 1
-                else:
-                    resp_line['status'] = 'Email ID Not Found!'
-                    failed += 1
 
-                resp_lines.append([0, 0, resp_line])
-            else:
-                wizard = self.env['wizard.transaction.history.message'].create({'name': 'Message', 'lines_ids': resp_lines,
-                                                                                'success_count': success,
-                                                                                'failed_count': failed, })
-                return {'type': 'ir.actions.act_window',
-                        'name': 'Email Receipt',
-                        'res_model': 'wizard.transaction.history.message',
-                        'target': 'new',
-                        'view_mode': 'form',
-                        'view_type': 'form',
-                        'res_id': wizard.id,
-                        'context': self._context
-                        }
+                    resp_lines.append([0, 0, resp_line])
+                else:
+                    wizard = self.env['wizard.transaction.history.message'].create({'name': 'Message', 'lines_ids': resp_lines,
+                                                                                    'success_count': success,
+                                                                                    'failed_count': failed, })
+                    return {'type': 'ir.actions.act_window',
+                            'name': 'Email Receipt',
+                            'res_model': 'wizard.transaction.history.message',
+                            'target': 'new',
+                            'view_mode': 'form',
+                            'view_type': 'form',
+                            'res_id': wizard.id,
+                            'context': self.env.context
+                            }
 
         except Exception as e:
             raise ValidationError(e)

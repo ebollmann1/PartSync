@@ -1,4 +1,4 @@
-from odoo import fields, models, api
+from odoo import fields, models, api, _
 from odoo.exceptions import ValidationError, UserError
 from datetime import datetime, timedelta
 import logging
@@ -40,7 +40,7 @@ class DownloadEBizPayment(models.TransientModel):
         return domain
 
     def get_default_company(self):
-        return self._context.get('allowed_company_ids')
+        return self.env.context.get('allowed_company_ids')
 
     def _default_instance_id(self):
         return self.env['ebizcharge.instance.config']._default_instance_id()
@@ -49,8 +49,7 @@ class DownloadEBizPayment(models.TransientModel):
     is_adjustment_field = fields.Char(string='Adjustment')
     to_date = fields.Date("To Date", required=True, default=get_default_to_date)
     payment_lines = fields.One2many('ebiz.payment.lines', 'wiz_id')
-    compute_counter = fields.Integer(compute="_compute_payment_line", store=True)
-    name = fields.Char('Name', default="Download Payment")
+    name = fields.Char(string='Download Received Payments', default=lambda self: _('Download Received Payments'))
     transaction_log_lines = fields.Many2many('sync.logs', copy=True, domain=lambda self: self.domain_users())
     payment_category = fields.Selection([
                                    ('all', 'All'), 
@@ -64,6 +63,10 @@ class DownloadEBizPayment(models.TransientModel):
     ebiz_profile_id = fields.Many2one('ebizcharge.instance.config', string='EBizCharge Profile',
                                       default=_default_instance_id)
 
+    def _compute_display_name(self):
+        for rec in self:
+            rec.display_name = 'Download Received Payments'
+
     def get_recurring_payments(self, start, end, ebiz):
         params = {
             'securityToken': ebiz._generate_security_json(),
@@ -73,7 +76,7 @@ class DownloadEBizPayment(models.TransientModel):
             "start": 0,
         }
         payments = ebiz.client.service.SearchRecurringPayments(**params)
-        payment_lines = []
+        payment_lines = [fields.Command.clear()]
 
         if payments:
             for payment in payments:
@@ -86,7 +89,7 @@ class DownloadEBizPayment(models.TransientModel):
                         payment_line = self.get_payment_line(payment, odoo_customer)
                         payment_line['type_id'] = "Fixed Amount Auto Payments"
                         payment_line['source'] = get_transaction['Source']
-                        payment_lines.append((0, 0, payment_line))
+                        payment_lines += [fields.Command.create(payment_line)]
         return payment_lines
 
     def get_payments(self, start, end, ebiz):
@@ -98,23 +101,18 @@ class DownloadEBizPayment(models.TransientModel):
             "start": 0,
         }
         payments = ebiz.client.service.GetPayments(**params)
-        payment_lines = []
+        payment_lines = [fields.Command.clear()]
 
         if payments:
             for payment in payments:
                 if payment['CustomerId'] != 'False' and payment['CustomerId'].isnumeric():
                     odoo_customer = self.env['res.partner'].browse(int(payment['CustomerId'])).exists()
                     if odoo_customer:
-                        # get_transaction = ebiz.client.service.GetTransactionDetails(
-                        #     **{'securityToken': ebiz._generate_security_json(),
-                        #        'transactionRefNum': payment['RefNum']})
                         payment_line = self.get_payment_line(payment, odoo_customer)
                         payment_line['type_id'] = 'Credit Note Payment' if payment[
                                                                                'TypeId'] == 'InvCredit' else self.get_payment_type(
                             payment['PaymentType'])
-                        # payment_line['source'] = get_transaction['Source']
-                        # payment_line['source'] = payment['PaymentSourceId']
-                        payment_lines.append((0, 0, payment_line))
+                        payment_lines += [fields.Command.create(payment_line)]
         return payment_lines
 
     def get_received_email_payments(self, start, end, ebiz):
@@ -127,7 +125,7 @@ class DownloadEBizPayment(models.TransientModel):
             "start": 0,
         }
         payments = ebiz.client.service.SearchEbizWebFormReceivedPayments(**params)
-        payment_lines = []
+        payment_lines = [fields.Command.clear()]
 
         if payments:
             for payment in payments:
@@ -135,30 +133,24 @@ class DownloadEBizPayment(models.TransientModel):
                 if payment['CustomerId'] != 'False' and payment['CustomerId'].isnumeric():
                     try:
                         odoo_customer = self.env['res.partner'].browse(int(payment['CustomerId'])).exists()
-                    except:
+                    except Exception:
+                        _logger.exception("Failed to browse partner %s", payment['CustomerId'])
                         continue
                     if odoo_customer:
+                        type_id = 'Email Pay' if payment['TypeId'] == 'EmailForm' else payment['TypeId']
+                        source = 'Email Pay' if payment['PaymentSourceId'].strip() == 'Odoo CRM' else payment['PaymentSourceId'] or "N/A"
+                        should_add = True
                         if payment['InvoiceNumber']:
-                            invoice = self.env['account.move'].search([('name', '=', payment['InvoiceNumber'])])
-                            sale = self.env['sale.order'].search([('name', '=', payment['InvoiceNumber'])])
-                            if invoice or sale:
-                                payment_line = self.get_payment_line(payment, odoo_customer)
-                                payment_line['type_id'] = 'Email Pay' if payment['TypeId'] == 'EmailForm' else payment[
-                                    'TypeId']
-                                payment_line['is_email_payment'] = True
-                                payment_line['source'] = 'Email Pay' if payment[
-                                                                            'PaymentSourceId'].strip() == 'Odoo CRM' else \
-                                    payment['PaymentSourceId'] or "N/A"
-                                payment_lines.append((0, 0, payment_line))
-                        else:
+                            name = payment['InvoiceNumber'].split(' ', 1)[0]
+                            invoice = self.env['account.move'].search([('name', '=', name)])
+                            sale = self.env['sale.order'].search([('name', '=', name)])
+                            should_add = bool(invoice or sale)
+                        if should_add:
                             payment_line = self.get_payment_line(payment, odoo_customer)
-                            payment_line['type_id'] = 'Email Pay' if payment['TypeId'] == 'EmailForm' else payment[
-                                'TypeId']
+                            payment_line['type_id'] = type_id
                             payment_line['is_email_payment'] = True
-                            payment_line['source'] = 'Email Pay' if payment[
-                                                                        'PaymentSourceId'].strip() == 'Odoo CRM' else \
-                                payment['PaymentSourceId'] or "N/A",
-                            payment_lines.append((0, 0, payment_line))
+                            payment_line['source'] = source
+                            payment_lines += [fields.Command.create(payment_line)]
         return payment_lines
 
     def get_payment_line(self, payment, partner):
@@ -172,14 +164,14 @@ class DownloadEBizPayment(models.TransientModel):
             else:
                 rf_date = date.split('/')
             return f"{rf_date[1]}/{rf_date[2]}/{rf_date[0]}"
-        sale = self.env['sale.order'].search([('name', '=', payment['InvoiceNumber'])])
+        sale = False
         is_save_link = False
+        if payment['InvoiceNumber']:
+            sale = self.env['sale.order'].search([('name', '=', payment['InvoiceNumber'].split(' ', 1)[0])])
         if sale and sale.invoice_status not in ('no','to invoice') and not sale.partner_id.ebiz_profile_id.apply_sale_pay_inv:
             is_save_link = True
-        payment_method = 'ACH'
-        if payment['PaymentMethod']:
-            payment_method = payment['PaymentMethod']
-        val = {
+        payment_method = payment['PaymentMethod'] or 'ACH'
+        return {
             "payment_type": payment['PaymentType'],
             "payment_internal_id": payment['PaymentInternalId'],
             "customer_id": str(payment['CustomerId']),
@@ -202,22 +194,20 @@ class DownloadEBizPayment(models.TransientModel):
             "paid_amount_op": payment['PaidAmount'],
             "source": payment['PaymentSourceId'],
         }
-        return val
+
+    _PAYMENT_TYPE_MAP = {
+        'RecurringFullBalanceInvoicePayment': 'Statement Auto Payment',
+        'InvoicePayment': 'Invoice Payments',
+        'QuickPay': 'Quick Payment',
+        'InvCredit': 'Credit',
+    }
 
     def get_payment_type(self, type):
-        if type == 'RecurringFullBalanceInvoicePayment':
-            return "Statement Auto Payment"
-        elif type == "InvoicePayment":
-            return "Invoice Payments"
-        elif type == 'QuickPay':
-            return "Quick Payment"
-        elif type == 'InvCredit':
-            return "Credit"
-        return ""
+        return self._PAYMENT_TYPE_MAP.get(type, '')
 
     @api.depends('ebiz_profile_id')
     def compute_company(self):
-        self.company_ids = self._context.get('allowed_company_ids')
+        self.company_ids = self.env.context.get('allowed_company_ids')
 
     @api.model_create_multi
     def create(self, values):
@@ -227,366 +217,88 @@ class DownloadEBizPayment(models.TransientModel):
         res = super(DownloadEBizPayment, self).create(values)
         return res
 
-    def fetch_again(self):
+    def action_open_download_payments(self):
+        profile_obj = self.env['ebizcharge.instance.config']
+        profile = int(profile_obj.get_upload_instance(active_model='ebiz.download.payments', active_id=self))
+        record = self
+        if profile:
+            ebiz_profile_id = self.env['ebizcharge.instance.config'].browse(int(profile))
+            record = self.env['ebiz.download.payments'].create({'ebiz_profile_id': profile,
+                                                                 'from_date': ebiz_profile_id._default_get_start(),
+                                                                 'to_date': ebiz_profile_id._default_get_end_date()})
+            record.regenerate_line_ids()
+        return {
+            "name": _("Download Received Payments"),
+            "type": "ir.actions.act_window",
+            "res_model": "ebiz.download.payments",
+            "res_id": record.id,
+            'view_id': self.env.ref('payment_ebizcharge_crm.view_ebiz_download_payments_form_v2', False).id,
+            "view_mode": "form",
+            "target": "inline",
+        }
+
+    def set_merchant_initial_values(self):
+        profile_obj = self.env['ebizcharge.instance.config']
+        profile = int(profile_obj.get_upload_instance(active_model='ebiz.download.payments', active_id=self))
+        if profile:
+            self.ebiz_profile_id = profile
+            self.from_date = self.ebiz_profile_id._default_get_start()
+            self.to_date = self.ebiz_profile_id._default_get_end_date()
+
+    def regenerate_line_ids(self):
+        if not self.ebiz_profile_id:
+            self.set_merchant_initial_values()
+        self.compute_payment_lines()
+        self._create_logs_lines()
+
+    def action_generate_line_ids(self):
+        if not self.ebiz_profile_id:
+            self.set_merchant_initial_values()
+        self._create_logs_lines()
+        return self._validate_and_create_received_payments()
+
+    def _validate_and_create_received_payments(self):
         self.is_download_pressed_fixed_auto_amount = False
         if not self.payment_category:
             raise ValidationError('Please select a Payment Category before refreshing the table.')
         if self.payment_category == 'fixed_amount':
             self.is_download_pressed_fixed_auto_amount = True
-        self.payment_lines.unlink()
         if self.from_date and self.to_date:
-            if not self.from_date < self.to_date:
+            if self.from_date >= self.to_date:
                 message = 'From Date should be lower than the To date!'
                 return message_wizard(message, 'Invalid Date')
-        if self.payment_category == 'all' and 'from_confirm_wizard' not in self.env.context:
-            wizard = self.env['message.confirm.wizard'].create({"wizard_id": self.id, 
-            "text": 'Downloading all payment types at once may take several minutes to load. Would you like to continue?',})
+        if self.payment_category == 'all':
+            wizard = self.env['message.confirm.wizard'].create({"wizard_id": self.id,
+                                                                "text": 'Downloading all payment types at once may take several minutes to load. Would you like to continue?', })
 
             action = self.env.ref('payment_ebizcharge_crm.action_message_confirm_wizard_form').read()[0]
             action['res_id'] = wizard.id
             return action
         self.compute_payment_lines()
-        self.is_download_pressed = True
+
+    def _create_logs_lines(self):
+        if not self or not self.from_date or not self.to_date:
+            return
         odoo_logs = self.env['sync.logs'].search([]).filtered(
             lambda i: datetime.strptime(i.date_paid, '%m/%d/%Y').date() >= self.from_date and datetime.strptime(
                 i.date_paid, '%m/%d/%Y').date() <= self.to_date)
-        if odoo_logs:
-            self.transaction_log_lines = odoo_logs.ids
-        else:
-            self.transaction_log_lines = False
-        action = self.env.ref('payment_ebizcharge_crm.action_ebiz_download_payments_form_updated').read()[0]
-        action['res_id'] = self.id
-        return action
+        self.transaction_log_lines = [fields.Command.set(odoo_logs.ids)]
 
-    def fetch_again_from_js(self, *args, **kwargs):
-        current_download_payment_id = self.env['ebiz.download.payments'].search([], order="id desc", limit=1)
-        return current_download_payment_id.fetch_again()
-
-    def _compute_payment_line(self):
-        if not self.from_date < self.to_date:
-            raise ValidationError('From Date should be lower than the to date')
-        self.compute_payment_lines()
+    _CATEGORY_METHODS = {
+        'portal_mobile': ['get_payments'],
+        'email_pay': ['get_received_email_payments'],
+        'fixed_amount': ['get_recurring_payments'],
+        'all': ['get_payments', 'get_received_email_payments', 'get_recurring_payments'],
+    }
 
     def compute_payment_lines(self):
         if self.ebiz_profile_id:
-            instances = self.ebiz_profile_id
-        else:
-            instances = self.env['ebizcharge.instance.config'].search(
-                [('is_valid_credential', '=', True), ('is_active', '=', True),
-                 '|', ('company_ids', 'in', self._context.get('allowed_company_ids')), ('company_ids', '=', False)])
-        payments = []
-        for instance in instances:
-            ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
-            if self.payment_category == 'all':
-                payments += self.get_payments(self.from_date, self.to_date, ebiz)
-                payments += self.get_received_email_payments(self.from_date, self.to_date, ebiz)
-                payments += self.get_recurring_payments(self.from_date, self.to_date, ebiz)
-            if self.payment_category == 'portal_mobile':
-                payments += self.get_payments(self.from_date, self.to_date, ebiz)
-            if self.payment_category == 'email_pay':
-                payments += self.get_received_email_payments(self.from_date, self.to_date, ebiz)
-            if self.payment_category == 'fixed_amount':
-                payments += self.get_recurring_payments(self.from_date, self.to_date, ebiz)
-        self.payment_lines = payments
+            payments = []
+            ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=self.ebiz_profile_id)
+            for method_name in self._CATEGORY_METHODS.get(self.payment_category, []):
+                payments += getattr(self, method_name)(self.from_date, self.to_date, ebiz)
+            self.payment_lines = payments
 
-    def js_mark_as_applied(self, *args, **kwargs):
-        if len(kwargs['values']) == 0:
-            raise ValidationError('Please select at least one payment to proceed with this action.')
-        if any(bool(val['is_save_link']) for val in kwargs['values'] if bool(val['is_save_link'])):
-            text = "One or more sales orders have been converted to an invoice. Do you want to apply the payment(s) as payment on account?"
-            wizard = self.env['message.confirm.wizard'].create({"wizard_id": self.id, "text": text, "is_sale": True })
-            action = self.env.ref('payment_ebizcharge_crm.action_message_confirm_wizard_form').read()[0]
-            action['res_id'] = wizard.id
-            action['context'] = dict(
-                self.env.context,
-                kwargs_values=kwargs['values'],
-            )
-            return action
-        result = self.mark_as_applied(kwargs['values'])
-        return result
-
-    def mark_as_applied(self, js_filter_records):
-        selected = js_filter_records
-        if not selected:
-            raise ValidationError('Please select at least one payment to proceed with this action.')
-        message_lines = []
-        success = 0
-        failed = 0
-        total = len(selected)
-        list_of_invoices = []
-        try:
-            for item in selected:
-                message_record = {
-                    'customer_name': item['partner_id'][1],
-                    'customer_id': item['partner_id'][0],
-                    'invoice_no': item['invoice_number'],
-                    'status': 'Success'
-                }
-                invoice = self.env['account.move'].search([('name', '=', item['invoice_number_op'])])
-                sale = self.env['sale.order'].search([('name', '=', item['invoice_number_op'])])
-                credit = self.env['account.payment']
-                if item['invoice_number_op']:
-                    credit = self.env['account.payment'].search([('name', '=', item['invoice_number_op'])])
-                if invoice.partner_id.ebiz_profile_id:
-                    partner = invoice.partner_id
-                else:
-                    partner = self.env['res.partner'].search([('id', '=', item['customer_id'])])
-                if partner:
-                    instance = partner.ebiz_profile_id
-                    if not instance:
-                        raise UserError(f'{partner.name} have not any Merchant account .Please select Merchant '
-                                        f'account on customer profile.')
-                    ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
-                    list_of_invoices.append(self.create_log_lines(item))
-                    resp = False
-                    try:
-                        if invoice:
-                            if not item['is_email_payment']:
-                                resp = ebiz.client.service.MarkPaymentAsApplied(**{
-                                    'securityToken': ebiz._generate_security_json(),
-                                    'paymentInternalId': item['payment_internal_id'],
-                                    'invoiceNumber': item['invoice_number'],
-                                })
-                            else:
-                                resp = ebiz.client.service.MarkEbizWebFormPaymentAsApplied(**{
-                                    'securityToken': ebiz._generate_security_json(),
-                                    'paymentInternalId': item['payment_internal_id'],
-                                })
-                            if resp['Status'] == 'Success':
-                                invoice.ebiz_create_payment_line(item['paid_amount_op'])
-                        elif sale:
-                            if sale and item['type_id']=='PayLinkOnly':
-                                resp = ebiz.client.service.MarkEbizWebFormPaymentAsApplied(**{
-                                    'securityToken': ebiz._generate_security_json(),
-                                    'paymentInternalId': item['payment_internal_id'],
-                                })
-                                if resp and resp['Status'] == 'Success':
-                                    payment_acq = self.env['payment.provider'].search(
-                                        [('company_id', '=',
-                                          partner.company_id.id if partner.company_id else self.env.company.id),
-                                         ('code', '=', 'ebizcharge')], limit=1)
-                                    ebiz_method_tran = self.env['payment.method'].search(
-                                        [('code', '=', 'ebizcharge')], limit=1)
-                                    ebiz_method = self.env['account.payment.method.line'].search(
-                                        [('journal_id', '=', payment_acq.journal_id.id),
-                                         ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
-                                    payment = False
-                                    transactions = ebiz.client.service.GetTransactionDetails(
-                                        **{'securityToken': ebiz._generate_security_json(),
-                                           'transactionRefNum': item['ref_num']})
-                                    if transactions['TransactionType'] != 'Auth Only':
-                                        payment = self.env['account.payment'].sudo().create({
-                                            'journal_id': payment_acq.journal_id.id,
-                                            'payment_method_id': ebiz_method.payment_method_id.id,
-                                            'payment_method_line_id':ebiz_method.id,
-                                            'partner_id': partner.id,
-                                            'transaction_ref': item['ref_num'],
-                                            'amount': item['paid_amount'],
-                                            'partner_type': 'customer',
-                                            'payment_type': 'inbound',
-                                            'payment_reference': item['invoice_number_op'] if item['invoice_number_op'] else '',
-                                        })
-
-                                    ebiz_transaction = self.env['payment.transaction'].sudo().create({
-                                        'provider_id': payment_acq.sudo().id,
-                                        'payment_method_id': ebiz_method_tran.id,
-                                        'provider_reference': item['ref_num'] ,
-                                        'reference': item['invoice_number_op'] if item['invoice_number_op'] else '',
-                                        'amount': item['paid_amount'],
-                                        'currency_id': payment_acq.company_id.currency_id.id,
-                                        'partner_id': partner.id,
-                                        'token_id': False,
-                                        'operation': 'offline',
-                                        'sale_order_ids': [sale.id],
-                                        'payment_id': payment.id if payment else False,
-                                    })  # In sudo mode to allow writing on callback fields
-                                    ebiz_transaction._set_authorized()
-                                    sale.save_payment_link = False
-                                    sale.request_amount = 0
-                                    if transactions['TransactionType']!='Auth Only':
-                                        ebiz_transaction._set_done()
-                                        
-                            elif sale:
-                                resp = ebiz.client.service.MarkApplicationTransactionAsApplied(**{
-                                    'securityToken': ebiz._generate_security_json(),
-                                    'applicationTransactionInternalId': item['payment_internal_id'],
-                                })
-
-                                if resp and resp['Status'] == 'Success':
-                                    payment_acq = self.env['payment.provider'].search(
-                                        [('company_id', '=',
-                                          partner.company_id.id if partner.company_id else self.env.company.id),
-                                         ('code', '=', 'ebizcharge')])
-                                    ebiz_method = self.env['account.payment.method.line'].search(
-                                        [('journal_id', '=', payment_acq.journal_id.id),
-                                         ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
-                                    payment = self.env['account.payment'].sudo().create({
-                                        'journal_id': payment_acq.journal_id.id,
-                                        'payment_method_id': ebiz_method.payment_method_id.id,
-                                        'payment_method_line_id':ebiz_method.id,
-                                        'partner_id': partner.id,
-                                        'transaction_ref': item['ref_num'],
-
-                                        'amount': item['paid_amount'],
-                                        'partner_type': 'customer',
-                                        'payment_type': 'inbound',
-                                        'payment_reference': item['invoice_number_op'] if item['invoice_number_op'] else '',
-                                    })
-                                    payment.action_post()
-                        elif credit:
-                            resp = ebiz.client.service.MarkPaymentAsApplied(**{
-                                'securityToken': ebiz._generate_security_json(),
-                                'paymentInternalId': item['payment_internal_id'],
-                                'invoiceNumber': item['invoice_number_op'],
-                            })
-                            credit.action_draft()
-                            credit.cancel()
-                        elif partner and item['type_id'] in ['Quick Payment', 'Fixed Amount Auto Payments']:
-                            payment_acq = self.env['payment.provider'].search(
-                                [('company_id', '=',
-                                  partner.company_id.id if partner.company_id else self.env.company.id),
-                                 ('code', '=', 'ebizcharge')])
-                            if payment_acq:
-                                if item['type_id'] in ['Fixed Amount Auto Payments']:
-                                    resp = ebiz.client.service.MarkRecurringPaymentAsApplied(**{
-                                        'securityToken': ebiz._generate_security_json(),
-                                        'paymentInternalId': item['payment_internal_id'],
-                                        'invoiceNumber': item['invoice_number_op'] if item['invoice_number_op'] else '',
-                                    })
-                                else:
-                                    resp = ebiz.client.service.MarkPaymentAsApplied(**{
-                                        'securityToken': ebiz._generate_security_json(),
-                                        'paymentInternalId': item['payment_internal_id'],
-                                        'invoiceNumber': item['invoice_number_op'] if item['invoice_number_op'] else '',
-                                    })
-                                if resp['Status'] == 'Success':
-                                    ebiz_method = self.env['account.payment.method.line'].search(
-                                        [('journal_id', '=', payment_acq.journal_id.id),
-                                         ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
-                                    payment = self.env['account.payment'].sudo().create({
-                                        'journal_id': payment_acq.journal_id.id,
-                                        'payment_method_id': ebiz_method.payment_method_id.id,
-                                        'payment_method_line_id':ebiz_method.id,
-                                        'partner_id': partner.id,
-                                        'transaction_ref': item['ref_num'],
-                                        'amount': item['paid_amount'],
-                                        'partner_type': 'customer',
-                                        'payment_type': 'inbound',
-                                        'payment_reference': item['invoice_number_op'] if item['invoice_number_op'] else '',
-                                    })
-                                    payment.action_post()
-                        if resp and resp['Status'] == 'Success':
-                            success += 1
-                            if self.payment_lines:
-                                history_line = self.payment_lines.search(
-                                    [('ref_num', '=', item['ref_num'])])
-                                for l in history_line:
-                                    self.payment_lines = [[2, l.id]]
-                        else:
-                            failed += 1
-                            message_record['status'] = 'Failed'
-                    except:
-                        failed += 1
-                        message_record['status'] = 'Failed'
-                else:
-                    failed += 1
-                    message_record['status'] = 'Failed'
-
-                message_lines.append([0, 0, message_record])
-
-            odoo_logs = self.env['sync.logs'].create(list_of_invoices)
-            for log in odoo_logs:
-                self.write({
-                    'transaction_log_lines': [[4, log.id]]
-                })
-            wizard = self.env['download.payment.message'].create({'name': 'Download', 'lines_ids': message_lines,
-                                                                  'succeeded': success, 'failed': failed,
-                                                                  'total': total})
-            action = self.env.ref('payment_ebizcharge_crm.wizard_ebiz_download_message_action').read()[0]
-            action['context'] = self._context
-            action['res_id'] = wizard.id
-            action['succeeded'] = wizard.succeeded
-            action['failed'] = wizard.failed
-            return action
-
-        except Exception as e:
-            _logger.exception(e)
-            raise ValidationError(str(e))
-
-
-    def action_pre_auth_or_deposit(self, item, order):
-        token = self.env['payment.token'].search([('provider_ref', '=', item['provider_ref'])])
-        acquirer = self.env['payment.provider'].search([('company_id', '=', order.company_id.id), ('code', '=', 'ebizcharge')])
-        payment = self.with_context({'for_pre_auth': True}).sudo().create_payment(acquirer, item, order.partner_id)
-        payment.payment_token_id = token.id
-        transactions = payment.sudo().with_context({'default_order_id': order.id})._create_payment_transaction()
-        transactions.sudo().write({
-            'payment_id': payment.id,
-            'sale_order_ids': [order.id],
-            'invoice_ids': False,
-            'transaction_type': 'pre_auth',
-            'provider_reference': item['ref_num'],
-            'ebiz_auth_code': item['auth_code'],
-        })
-        order.transaction_ids = [transactions.id]
-        payment.payment_transaction_id = transactions.id
-        payment.ref = transactions.reference
-        transactions.sudo()._set_authorized()
-        if item['payment_type'] == 'Sale':
-            transactions.sudo().write({
-                'transaction_type': 'deposit',
-            })
-            transactions.sudo().with_context({'from_email_link': True})._set_done()
-            payment.sudo().action_post()
-        order.request_amount = 0
-        order.last_request_amount = 0
-        order.ebiz_payment_link = 'applied'
-        order.save_payment_link = False
-
-    def create_log_lines(self, log):
-        dict1 = {
-            'type_id': log['type_id'],
-            'invoice_number': log['invoice_number'],
-            'partner_id': int(log['customer_id']),
-            'customer_id': str(log['customer_id']),
-            'date_paid': log['date_paid'],
-            'invoice_amount': log['invoice_amount'],
-            'paid_amount': log['paid_amount'],
-            'amount_due': log['amount_due'],
-            'payment_method': log['payment_method'],
-            'auth_code': log['auth_code'],
-            'ref_num': log['ref_num'],
-            'currency_id': self.env.user.currency_id.id,
-            'last_sync_date': datetime.now(),
-        }
-        return dict1
-
-    @api.model
-    def default_get(self, fields):
-        res = super(DownloadEBizPayment, self).default_get(fields)
-        if 'ebiz_profile_id' in res and res['ebiz_profile_id']:
-            instance = self.env['ebizcharge.instance.config'].browse([res['ebiz_profile_id']])
-            instance.action_update_profiles('ebiz.download.payments')
-        res.update({
-            'is_download_pressed': False,
-        })
-        return res
-
-    def clear_logs(self, *args, **kwargs):
-        if len(kwargs['values']) == 0:
-            raise UserError('Please select a record first!')
-        else:
-            text = f"Are you sure you want to clear {len(kwargs['values'])} payment(s) from the Log?"
-            wizard = self.env['wizard.delete.logs.download'].create({"record_id": self.id,
-                                                                     "record_model": self._name,
-                                                                     "text": text})
-            action = self.env.ref('payment_ebizcharge_crm.wizard_delete_downloads_logs_action').read()[0]
-            action['res_id'] = wizard.id
-            action['context'] = dict(
-                self.env.context,
-                kwargs_values=kwargs['values'],
-            )
-            return action
 
 
 class EBizPaymentLines(models.TransientModel):
@@ -619,8 +331,261 @@ class EBizPaymentLines(models.TransientModel):
     payment_type = fields.Char('Payment Type')
     source = fields.Char('Source', default="Odoo")
     is_save_link = fields.Boolean(string="Save Link")
+    is_payment_on_account = fields.Boolean(string="Is Payment on Account", help='If payment on account is set, It will create payment on customer account.')
     is_email_payment = fields.Boolean('Is Email Pay', default=False)
 
+    def action_payment_import_into_odoo(self):
+        if any(line.is_save_link for line in self):
+            need_payment_on_account_ids = [line.id for line in self if line.is_save_link]
+            text = "One or more sales orders have been converted to an invoice. Do you want to apply the payment(s) as payment on account?"
+            wizard = self.env['message.confirm.wizard'].with_context({
+                'line_ids': self.ids,
+                'line_model': 'ebiz.payment.lines',
+                'need_payment_on_account_ids': need_payment_on_account_ids
+            }).create({"wizard_id": self.wiz_id.id, "text": text, "is_sale": True })
+            action = self.env.ref('payment_ebizcharge_crm.action_message_confirm_wizard_form').read()[0]
+            action['res_id'] = wizard.id
+            action['context'] = dict(self.env.context)
+            return action
+        result = self.mark_as_applied()
+        return result
+
+    def payment_applied_for_invoice(self, ebiz, invoice_id):
+        if not self.is_email_payment:
+            resp = ebiz.client.service.MarkPaymentAsApplied(**{
+                'securityToken': ebiz._generate_security_json(),
+                'paymentInternalId': self.payment_internal_id,
+                'invoiceNumber': self.invoice_number,
+            })
+        else:
+            resp = ebiz.client.service.MarkEbizWebFormPaymentAsApplied(**{
+                'securityToken': ebiz._generate_security_json(),
+                'paymentInternalId': self.payment_internal_id,
+            })
+        if resp['Status'] == 'Success':
+            invoice_id.ebiz_create_payment_line(self.paid_amount_op, self.payment_method)
+        return resp
+
+    def _prepare_payment_transaction_values(self, payment_acq, ebiz_method_tran, partner, sale, payment):
+        return {
+            'provider_id': payment_acq.sudo().id,
+            'payment_method_id': ebiz_method_tran.id,
+            'provider_reference': self.ref_num,
+            'reference': self.env['payment.transaction']._compute_reference(payment_acq.code, prefix=sale.name),
+            'amount': self.paid_amount,
+            'currency_id': payment_acq.company_id.currency_id.id,
+            'partner_id': partner.id,
+            'token_id': False,
+            'operation': 'offline',
+            'sale_order_ids': [sale.id],
+            'payment_id': payment.id if payment else False,
+        }
+
+    def _prepare_account_payment_values(self, payment_acq, ebiz_method, partner, memo):
+        return {
+            'journal_id': payment_acq.journal_id.id,
+            'payment_method_id': ebiz_method.payment_method_id.id,
+            'payment_method_line_id': ebiz_method.id,
+            'partner_id': partner.id,
+            'transaction_ref': self.ref_num,
+            'amount': self.paid_amount,
+            'partner_type': 'customer',
+            'payment_type': 'inbound',
+            'payment_reference': self.invoice_number_op if self.invoice_number_op else '',
+            'memo': memo,
+        }
+
+    def create_payment_on_account(self, partner):
+        payment_acq = self.env['payment.provider'].search(
+            [('company_id', '=',
+              partner.company_id.id if partner.company_id else self.env.company.id),
+             ('code', '=', 'ebizcharge')])
+        ebiz_method = self.env['account.payment.method.line'].search(
+            [('journal_id', '=', payment_acq.journal_id.id),
+             ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
+        payment = self.env['account.payment'].sudo().create(self._prepare_account_payment_values(payment_acq, ebiz_method, partner, ''))
+        payment.action_post()
+
+    def payment_applied_for_sale(self, ebiz, sale, partner):
+        resp = False
+        if sale and self.is_payment_on_account:
+            resp = ebiz.client.service.MarkEbizWebFormPaymentAsApplied(**{
+                'securityToken': ebiz._generate_security_json(),
+                'paymentInternalId': self.payment_internal_id,
+            })
+            if resp and resp['Status'] == 'Success':
+                self.create_payment_on_account(partner)
+        elif sale and self.type_id == 'PayLinkOnly':
+            resp = ebiz.client.service.MarkEbizWebFormPaymentAsApplied(**{
+                'securityToken': ebiz._generate_security_json(),
+                'paymentInternalId': self.payment_internal_id,
+            })
+            if resp and resp['Status'] == 'Success':
+                payment_acq = self.env['payment.provider'].search(
+                    [('company_id', '=',
+                      partner.company_id.id if partner.company_id else self.env.company.id),
+                     ('code', '=', 'ebizcharge')], limit=1)
+                ebiz_method_tran = self.env['payment.method'].search(
+                    [('code', '=', 'ebizcharge')], limit=1)
+                ebiz_method = self.env['account.payment.method.line'].search(
+                    [('journal_id', '=', payment_acq.journal_id.id),
+                     ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
+                payment = False
+                transactions = ebiz.client.service.GetTransactionDetails(
+                    **{'securityToken': ebiz._generate_security_json(),
+                       'transactionRefNum': self.ref_num})
+                if transactions['TransactionType'] != 'Auth Only':
+                    memo = self.invoice_number_op
+                    if partner.ebiz_profile_id.payment_memo_setting == 'dn_pon_pm':
+                        memo = " ".join(val for val in [self.invoice_number_op, self.payment_method] if val)
+                    payment = self.env['account.payment'].sudo().create(self._prepare_account_payment_values(payment_acq, ebiz_method, partner, memo))
+
+                ebiz_transaction = self.env['payment.transaction'].sudo().create(
+                    self._prepare_payment_transaction_values(payment_acq, ebiz_method_tran, partner, sale, payment))
+                # In sudo mode to allow writing on callback fields
+                ebiz_transaction._set_authorized()
+                sale.write({'save_payment_link': False, 'request_amount': 0})
+                if transactions['TransactionType'].lower() not in ['auth only', 'authonly']:
+                    ebiz_transaction.transaction_type = 'deposit'
+                    ebiz_transaction._set_done()
+        elif sale:
+            resp = ebiz.client.service.MarkApplicationTransactionAsApplied(**{
+                'securityToken': ebiz._generate_security_json(),
+                'applicationTransactionInternalId': self.payment_internal_id,
+            })
+
+            if resp and resp['Status'] == 'Success':
+                self.create_payment_on_account(partner)
+        return resp
+
+    def payment_applied_for_customer(self, ebiz, partner):
+        resp = False
+        payment_acq = self.env['payment.provider'].search(
+            [('company_id', '=',
+              partner.company_id.id if partner.company_id else self.env.company.id),
+             ('code', '=', 'ebizcharge')])
+        if payment_acq:
+            if self.type_id in ['Fixed Amount Auto Payments']:
+                resp = ebiz.client.service.MarkRecurringPaymentAsApplied(**{
+                    'securityToken': ebiz._generate_security_json(),
+                    'paymentInternalId': self.payment_internal_id,
+                    'invoiceNumber': self.invoice_number_op if self.invoice_number_op else '',
+                })
+            else:
+                resp = ebiz.client.service.MarkPaymentAsApplied(**{
+                    'securityToken': ebiz._generate_security_json(),
+                    'paymentInternalId': self.payment_internal_id,
+                    'invoiceNumber': self.invoice_number_op if self.invoice_number_op else '',
+                })
+            if resp['Status'] == 'Success':
+                ebiz_method = self.env['account.payment.method.line'].search(
+                    [('journal_id', '=', payment_acq.journal_id.id),
+                     ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
+                payment = self.env['account.payment'].sudo().create(self._prepare_account_payment_values(payment_acq, ebiz_method, partner, ''))
+                payment.action_post()
+        return resp
+
+    def mark_as_applied(self):
+        message_lines = []
+        success = 0
+        failed = 0
+        total = len(self)
+        logs_list = []
+        unlink_ids = []
+        ebiz_cache = {}
+        try:
+            for record in self:
+                message_record = {
+                    'customer_name': record.partner_id.name,
+                    'customer_id': record.partner_id.id,
+                    'invoice_no': record.invoice_number,
+                    'status': 'Success'
+                }
+                invoice = self.env['account.move']
+                sale = self.env['sale.order']
+                credit = self.env['account.payment']
+                if record.invoice_number_op:
+                    ref = record.invoice_number_op.split(' ', 1)[0]
+                    invoice = invoice.search([('name', '=', ref)])
+                    if not invoice:
+                        sale = sale.search([('name', '=', ref)])
+                    if not invoice and not sale:
+                        credit = credit.search([('name', '=', ref)])
+                if record.partner_id:
+                    instance = record.partner_id.ebiz_profile_id
+                    if not instance:
+                        raise UserError(f'{record.partner_id.name} have not any Merchant account .Please select Merchant '
+                                        f'account on customer profile.')
+                    if instance.id not in ebiz_cache:
+                        ebiz_cache[instance.id] = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
+                    ebiz = ebiz_cache[instance.id]
+                    resp = False
+                    try:
+                        if invoice:
+                            resp = record.payment_applied_for_invoice(ebiz, invoice)
+                        elif sale:
+                            resp = record.payment_applied_for_sale(ebiz, sale, record.partner_id)
+                        elif credit:
+                            resp = ebiz.client.service.MarkPaymentAsApplied(**{
+                                'securityToken': ebiz._generate_security_json(),
+                                'paymentInternalId': record.payment_internal_id,
+                                'invoiceNumber': record.invoice_number_op,
+                            })
+                            credit.action_draft()
+                            credit.cancel()
+                        elif record.type_id in ['Quick Payment', 'Fixed Amount Auto Payments']:
+                            resp = record.payment_applied_for_customer(ebiz, record.partner_id)
+                        if resp and resp['Status'] == 'Success':
+                            success += 1
+                            unlink_ids.append(record.id)
+                            logs_list.append(record.create_log_lines())
+                        else:
+                            failed += 1
+                            message_record['status'] = 'Failed'
+                    except Exception as e:
+                        _logger.exception(e)
+                        failed += 1
+                        message_record['status'] = 'Failed'
+                else:
+                    failed += 1
+                    message_record['status'] = 'Failed'
+                message_lines.append(fields.Command.create(message_record))
+
+            if unlink_ids:
+                self.wiz_id.payment_lines = [fields.Command.unlink(i) for i in unlink_ids]
+            log_ids = self.env['sync.logs'].create(logs_list).ids
+            self.wiz_id.transaction_log_lines = [fields.Command.link(i) for i in log_ids]
+            wizard = self.env['download.payment.message'].create({'name': 'Download', 'lines_ids': message_lines,
+                                                                  'succeeded': success, 'failed': failed,
+                                                                  'total': total})
+            action = self.env.ref('payment_ebizcharge_crm.wizard_ebiz_download_message_action').read()[0]
+            action['context'] = self.env.context
+            action['res_id'] = wizard.id
+            action['succeeded'] = wizard.succeeded
+            action['failed'] = wizard.failed
+            return action
+
+        except Exception as e:
+            _logger.exception(e)
+            raise ValidationError(e)
+
+    def create_log_lines(self):
+        dict1 = {
+            'type_id': self.type_id,
+            'invoice_number': self.invoice_number,
+            'partner_id': int(self.customer_id),
+            'customer_id': str(self.customer_id),
+            'date_paid': self.date_paid,
+            'invoice_amount': self.invoice_amount,
+            'paid_amount': self.paid_amount,
+            'amount_due': self.amount_due,
+            'payment_method': self.payment_method,
+            'auth_code': self.auth_code,
+            'ref_num': self.ref_num,
+            'currency_id': self.env.user.currency_id.id,
+            'last_sync_date': datetime.now(),
+        }
+        return dict1
 
 class SyncLogs(models.Model):
     _name = 'sync.logs'
@@ -640,6 +605,20 @@ class SyncLogs(models.Model):
     auth_code = fields.Char('Auth Code')
     ref_num = fields.Char('Reference Number')
     last_sync_date = fields.Datetime(string="Import Date & Time")
+
+    def clear_logs(self):
+        text = f"Are you sure you want to clear {len(self)} payment(s) from the Log?"
+        wizard = self.env['wizard.delete.logs.download'].create({
+            'record_model': 'sync.logs',
+            'text': text
+        })
+        action = self.env.ref('payment_ebizcharge_crm.wizard_delete_downloads_logs_action').read()[0]
+        action['res_id'] = wizard.id
+        action['context'] = dict(
+            self.env.context,
+            record_ids=self.ids,
+        )
+        return action
 
 
 class BatchProcessMessage(models.TransientModel):

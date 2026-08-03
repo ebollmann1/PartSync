@@ -1,5 +1,4 @@
-from odoo import fields, models,api
-import json
+from odoo import fields, models
 
 
 class MultiSyncMessage(models.TransientModel):
@@ -14,19 +13,6 @@ class MultiSyncMessage(models.TransientModel):
     order_lines_ids = fields.One2many('wizard.multi.sync.order.line', 'message_id')
     invoice_lines_ids = fields.One2many('wizard.multi.sync.invoice.line', 'message_id')
     total = fields.Integer('Total')
-
-    def _compute_success_failed(self):
-        success = 0
-        failed = 0
-        for item in self.lines_ids:
-            if item.record_message in ['Success', 'Record already exists']:
-                success += 1
-            else:
-                failed += 1
-
-        self.total = len(self.lines_ids)
-        self.success_count = success
-        self.failed_count = failed
 
 
 class MultiSyncMessageLine(models.TransientModel):

@@ -1,6 +1,4 @@
-
-from odoo import models, api, fields
-import json
+from odoo import models, fields
 from odoo.exceptions import UserError, ValidationError
 from ..models.ebiz_charge import message_wizard
 
@@ -19,10 +17,7 @@ class EmailReceipt(models.TransientModel):
 
     def send_email(self):
         try:
-            instance = None
-            if self.partner_ids.ebiz_profile_id:
-                instance = self.partner_ids.ebiz_profile_id
-
+            instance = self.partner_ids.ebiz_profile_id or None
             ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
             record = self.env[self.env.context.get('active_model')].browse(self.env.context.get('active_id'))
             if not record.partner_id.email:

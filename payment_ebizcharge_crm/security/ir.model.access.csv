@@ -56,8 +56,6 @@ access_sync_logs,access.sync.logs,model_sync_logs,base.group_user,1,1,1,1
 
 access_sync_request_payments_bulk_received,access.sync.request.payments.bulk.received,model_sync_request_payments_bulk_received,base.group_user,1,1,1,1
 
-access_contact_us,access.contact.us,model_contact_us,base.group_user,1,1,1,1
-
 access_rpm_counter,access.rpm.counter,model_rpm_counter,base.group_user,1,1,1,1
 
 
@@ -103,9 +101,9 @@ access_ebiz_payment_link_copy,access.ebiz.payment.link.copy,model_ebiz_payment_l
 access_wizard_credit_note_validate,access.wizard.credit.note.validate,model_wizard_credit_note_validate,base.group_user,1,1,1,1
 access_wizard_receive_email_payment_link,access.wizard.receive.email.payment.link,model_wizard_receive_email_payment_link,base.group_user,1,1,1,1
 access_success_payment_methods,access.success.payment.methods,model_success_payment_methods,base.group_user,1,1,1,1
-access_ir_module_module_internal,access.ir.module.module,model_ir_module_module,base.group_user,1,0,0,0
-access_ir_module_module_portal,access.ir.module.module,model_ir_module_module,base.group_portal,1,0,0,0
-access_ir_module_module_public,access.ir.module.module,model_ir_module_module,base.group_public,1,0,0,0
+access_ir_module_module_internal,access.ir.module.module,base.model_ir_module_module,base.group_user,1,0,0,0
+access_ir_module_module_portal,access.ir.module.module,base.model_ir_module_module,base.group_portal,1,0,0,0
+access_ir_module_module_public,access.ir.module.module,base.model_ir_module_module,base.group_public,1,0,0,0
 access_payment_provider,access.payment.provider,model_payment_provider,base.group_user,1,1,1,1
 
 payment_ebizcharge_crm.access_sync_batch_log,access_sync_batch_log,payment_ebizcharge_crm.model_sync_batch_log,base.group_user,1,1,1,1
@@ -136,11 +134,11 @@ access_line_emv_device_transaction,access.line.emv.device.transaction,model_line
 
 access_ebizcharge_instance_config_portal,access.ebizcharge.instance.config.portal,model_ebizcharge_instance_config,base.group_portal,1,1,1,1
 access_ebizcharge_instance_config_public,access.ebizcharge.instance.config.public,model_ebizcharge_instance_config,base.group_public,1,1,1,1
-access_ir_actions_act_window,access.ir.actions.act_window,model_ir_actions_act_window,,1,1,1,1
-access_ir_actions_act_window_view,access.ir.actions.act_window.view,model_ir_actions_act_window_view,,1,1,1,1
+access_ir_actions_act_window,access.ir.actions.act_window,base.model_ir_actions_act_window,,1,1,1,1
+access_ir_actions_act_window_view,access.ir.actions.act_window.view,base.model_ir_actions_act_window_view,,1,1,1,1
 access_ebiz_payment_link_copy_line,access.ebiz.payment.link.copy.line,model_ebiz_payment_link_copy_line,,1,1,1,1
 access_ebiz_cvv_histry_tags,access.ebiz.cvv.histry.tags,model_ebiz_cvv_histry_tags,,1,1,1,1
 access_ebiz_avs_histry_tags,access.ebiz.avs.histry.tags,model_ebiz_avs_histry_tags,,1,1,1,1
 
-
+payment.payment_token_system,payment.token.system,model_payment_token,base.group_system,1,1,1,0
 

@@ -1,11 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-        <data noupdate="1">
-            <record id="my_record_08" model="inv.payment.link.bulk">
-                <field name="add_filter">0</field>
-            </record>
-        </data>
         <record id="form_view_inv_payment_link_bulk" model="ir.ui.view">
             <field name="name">Invoice Payment Link Bulk</field>
             <field name="model">inv.payment.link.bulk</field>
@@ -31,8 +26,15 @@
                     </group>
                     <br/>
                     <button class="oe_highlight" name="create_default_records" string="Refresh" type="object"/>
-                    <field invisible="not invoice_lines" mode="list" name="invoice_lines" widget="payment_link_ebiz">
+                    <field class="mt-3" invisible="not invoice_lines" mode="list" name="invoice_lines" widget="x2many_selection_actions">
                         <list create="false" delete="0" limit="15" no_open="1" string="Invoices">
+                            <header>
+                                <button class="btn-primary" name="action_generate_payment_link" type="object" string="GENERATE"/>
+                                <button class="btn-primary" name="action_remove_paylink" type="object" string="REMOVE LINK(S)"/>
+                                <button class="btn-primary" name="export_invoices" type="object" string="EXPORT"/>
+                                <field name="enable_surcharge_for_all" widget="boolean_toggle" string="Enable Surcharge for ALL"
+                                       invisible="not parent.is_surcharge_toggle_visible"/>
+                            </header>
                             <field column_invisible="1" name="id" readonly="1"/>
                             <field column_invisible="1" name="currency_id" readonly="1"/>
                             <field column_invisible="1" name="state" readonly="1"/>
@@ -43,9 +45,16 @@
                             <field name="amount_total_signed" options="{'currency_field': 'currency_id'}" string="Invoice Total" widget="monetary"/>
                             <field name="amount_residual_signed" options="{'currency_field': 'currency_id'}" string="Balance Remaining" widget="monetary"/>
                             <field name="request_amount" options="{'currency_field': 'currency_id'}" widget="monetary"/>
-                            <field name="generated_link" options="{'string': 'Copy Link'}" widget="CopyClipboardChar"/>
+                            <field name="inv_enable_sur" widget="boolean_toggle" readonly="generated_link"
+                                   column_invisible="not parent.is_surcharge_toggle_visible"/>
+                            <field name="generated_link" options="{'successText': 'Copied to clipboard'}" widget="CopyClipboardLink"/>
                             <field column_invisible="1" name="odoo_payment_link"/>
-                        </list></field>
+                            <field column_invisible="1" name="is_surcharge_enabled"/>
+                            <field column_invisible="1" name="merchant_toggle_sur_per_txn"/>
+                            <field column_invisible="1" name="is_surcharge_toggle_visible"/>
+                            <field column_invisible="1" name="invoice_id"/>
+                        </list>
+                    </field>
                     <div invisible="invoice_lines">
                         <div class="empty_div_setting">
                             <div class="o_view_nocontent">
@@ -57,14 +66,16 @@
                             </div>
                         </div>
                     </div>
-                </form></field>
+                </form>
+            </field>
         </record>
-        <record id="inv_payment_link_bulk_act" model="ir.actions.act_window">
+
+        <record id="inv_payment_link_bulk_act" model="ir.actions.server">
             <field name="name">Generate Payment Links for Invoices</field>
-            <field name="res_model">inv.payment.link.bulk</field>
-            <field name="res_id" ref="my_record_08"/>
-            <field name="target">inline</field>
-            <field name="view_mode">form,list</field>
+            <field name="type">ir.actions.server</field>
+            <field name="model_id" ref="payment_ebizcharge_crm.model_inv_payment_link_bulk"/>
+            <field name="state">code</field>
+            <field name="code">action = model.action_open_generate_payment_links()</field>
         </record>
         <menuitem action="inv_payment_link_bulk_act" id="inv_payment_link_bulk_menu" name="Generate Payment Links for Invoices" parent="ebiz_email_template_menu_main" sequence="1"/>
     </data>

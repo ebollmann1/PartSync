@@ -1,5 +1,4 @@
 /** @odoo-module **/
-import { _t } from "@web/core/l10n/translation";
 import { registry } from "@web/core/registry";
 import { booleanField, BooleanField } from "@web/views/fields/boolean/boolean_field";
 
@@ -9,6 +8,7 @@ export class EBizBooleanToggleField extends BooleanField {
         ...BooleanField.props,
         autosave: { type: Boolean, optional: true },
     };
+
     async onChange(newValue) {
         this.state.value = newValue;
         const changes = { [this.props.name]: newValue };

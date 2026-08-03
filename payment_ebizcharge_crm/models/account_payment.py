@@ -4,10 +4,17 @@ import logging
 from odoo.exceptions import UserError, ValidationError, AccessError
 from datetime import datetime
 from .ebiz_charge import message_wizard
-from ..utils import strtobool
+from ..tools import strtobool, _year_selection_from_current, _month_selection, _parse_avs_result
 import ast
 
 _logger = logging.getLogger(__name__)
+
+
+def to_dict(resp):
+    if not resp:
+        return {}
+    d = resp if isinstance(resp, dict) else getattr(resp, "__dict__", {})
+    return d.get("__values__", d)
 
 
 class AccountPayments(models.Model):
@@ -15,26 +22,14 @@ class AccountPayments(models.Model):
 
     @api.model
     def year_selection(self):
-        today = fields.Date.today()
-        # year =  # replace 2000 with your a start year
-        year = today.year
-        max_year = today.year + 30
-        year_list = []
-        while year != max_year:  # replace 2030 with your end year
-            year_list.append((str(year), str(year)))
-            year += 1
-        return year_list
+        return _year_selection_from_current()
 
     @api.model
     def month_selection(self):
-        m_list = []
-        for i in range(1, 13):
-            m_list.append((str(i), str(i)))
-        return m_list
+        return _month_selection()
 
     def _get_transaction_command(self):
-        dep = ('Sale', 'Deposit')
-        return [dep]
+        return [('Sale', 'Deposit')]
 
     card_id = fields.Many2one('payment.token', string='Saved Card')
     security_code = fields.Char(string='Security Code')
@@ -74,15 +69,15 @@ class AccountPayments(models.Model):
     ebiz_avs_zip = fields.Char(string='Zip Code *')
     ebiz_transaction_status = fields.Char(string='Transaction Status')
     ebiz_transaction_result = fields.Char(string='Result')
+    enable_surcharge = fields.Boolean(string='Enable Surcharge')
 
     @api.depends('state')
     def _compute_payment_internal_id(self):
         for payment in self:
             if not payment.payment_internal_id and payment.payment_method_line_id.code == 'ebizcharge':
                 payment.ebiz_add_invoice_payment()
-            # if there is any transaction mark that paid
-            if self.payment_transaction_id:
-                self.payment_transaction_id.write({'is_post_processed': True})
+            if payment.payment_transaction_id:
+                payment.payment_transaction_id.write({'is_post_processed': True})
 
     @api.depends('journal_id')
     def check_if_merchant_needs_avs_validation(self):
@@ -90,25 +85,30 @@ class AccountPayments(models.Model):
         Gets Merchant transaction configuration
         """
 
-        get_merchant_data = False
-        get_allow_credit_card_pay = False
         for payment in self:
-            if payment.partner_id.ebiz_profile_id:
-                get_merchant_data = payment.partner_id.ebiz_profile_id.merchant_data
-                get_allow_credit_card_pay = payment.partner_id.ebiz_profile_id.allow_credit_card_pay
-            payment.ach_functionality_hide = get_merchant_data
-            payment.card_functionality_hide = get_allow_credit_card_pay
+            profile = payment.partner_id.ebiz_profile_id
+            payment.ach_functionality_hide = profile.merchant_data if profile else False
+            payment.card_functionality_hide = profile.allow_credit_card_pay if profile else False
 
     @api.onchange('ebiz_send_receipt')
     def _compute_emails(self):
         if self.ebiz_send_receipt:
             self.ebiz_receipt_emails = self.sub_partner_id.email
 
+    def _is_ebiz_payment(self):
+        acquirer = self.env['payment.provider'].search(
+            [('company_id', '=', self.company_id.id), ('code', '=', 'ebizcharge')])
+        return acquirer.journal_id.name == self.journal_id.name
+
+    def _get_ebiz_instance(self):
+        if self.partner_id.ebiz_profile_id:
+            return self.partner_id.ebiz_profile_id
+        return self.env['ebizcharge.instance.config'].search(
+            [('is_valid_credential', '=', True), ('is_default', '=', True)], limit=1) or None
+
     @api.constrains('card_avs_zip')
     def card_avs_zip_length_id(self):
-        if self.env['payment.provider'].search(
-                [('company_id', '=', self.company_id.id),
-                 ('code', '=', 'ebizcharge')]).journal_id.name == self.journal_id.name:
+        if self._is_ebiz_payment():
             for rec in self:
                 if rec.card_avs_zip and rec.payment_method_line_id.code == 'ebizcharge':
                     if len(rec.card_avs_zip) > 15:
@@ -122,9 +122,7 @@ class AccountPayments(models.Model):
 
     @api.constrains('card_card_number')
     def card_card_number_length_id(self):
-        if self.env['payment.provider'].search(
-                [('company_id', '=', self.company_id.id),
-                 ('code', '=', 'ebizcharge')]).journal_id.name == self.journal_id.name:
+        if self._is_ebiz_payment():
             for rec in self:
                 if rec.token_type == 'credit' and rec.payment_method_line_id.code == 'ebizcharge':
                     if rec.card_card_number and (len(rec.card_card_number) > 19 or len(rec.card_card_number) < 13):
@@ -132,9 +130,7 @@ class AccountPayments(models.Model):
 
     @api.constrains('amount')
     def _constraint_min_amount(self):
-        if self.env['payment.provider'].search(
-                [('company_id', '=', self.company_id.id),
-                 ('code', '=', 'ebizcharge')]).journal_id.name == self.journal_id.name:
+        if self._is_ebiz_payment():
             for rec in self:
                 if rec.journal_id and rec.payment_method_line_id.code == 'ebizcharge':
                     ebiz_method = self.env['account.payment.method.line'].search(
@@ -145,9 +141,7 @@ class AccountPayments(models.Model):
 
     @api.constrains('ach_account')
     def ach_acc_number_length_id(self):
-        if self.env['payment.provider'].search(
-                [('company_id', '=', self.company_id.id),
-                 ('code', '=', 'ebizcharge')]).journal_id.name == self.journal_id.name:
+        if self._is_ebiz_payment():
             for rec in self:
                 if rec.token_type == 'ach' and rec.payment_method_line_id.code == 'ebizcharge':
                     ebiz_method = self.env['account.payment.method.line'].search(
@@ -161,9 +155,7 @@ class AccountPayments(models.Model):
 
     @api.constrains('ach_routing')
     def ach_routing_number_length_id(self):
-        if self.env['payment.provider'].search(
-                [('company_id', '=', self.company_id.id),
-                 ('code', '=', 'ebizcharge')]).journal_id.name == self.journal_id.name:
+        if self._is_ebiz_payment():
             for rec in self:
                 if rec.token_type == 'ach' and rec.payment_method_line_id.code == 'ebizcharge':
                     if rec.ach_routing and len(rec.ach_routing) != 9:
@@ -171,9 +163,7 @@ class AccountPayments(models.Model):
 
     @api.constrains('card_card_code')
     def card_card_code_length(self):
-        if self.env['payment.provider'].search(
-                [('company_id', '=', self.company_id.id),
-                 ('code', '=', 'ebizcharge')]).journal_id.name == self.journal_id.name:
+        if self._is_ebiz_payment():
             for rec in self:
                 if rec.token_type == 'credit' and rec.payment_method_line_id.code == 'ebizcharge':
                     if rec.card_card_code and (len(rec.card_card_code) != 3 and len(rec.card_card_code) != 4):
@@ -181,9 +171,7 @@ class AccountPayments(models.Model):
 
     @api.constrains('security_code')
     def card_card_code_length_security_code(self):
-        if self.env['payment.provider'].search(
-                [('company_id', '=', self.company_id.id),
-                 ('code', '=', 'ebizcharge')]).journal_id.name == self.journal_id.name:
+        if self._is_ebiz_payment():
             for rec in self:
                 if rec.token_type == 'credit' and rec.payment_method_line_id.code == 'ebizcharge':
                     if rec.security_code and (len(rec.security_code) != 3 and len(rec.security_code) != 4):
@@ -191,9 +179,7 @@ class AccountPayments(models.Model):
 
     @api.constrains('card_exp_month', 'card_exp_year')
     def card_expiry_date(self):
-        if self.env['payment.provider'].search(
-                [('company_id', '=', self.company_id.id),
-                 ('code', '=', 'ebizcharge')]).journal_id.name == self.journal_id.name:
+        if self._is_ebiz_payment():
             today = datetime.now()
             for rec in self:
                 if rec.token_type == 'credit' and rec.card_exp_month and rec.card_exp_year and rec.payment_method_line_id.code == 'ebizcharge':
@@ -208,17 +194,26 @@ class AccountPayments(models.Model):
     def _compute_trans_ref(self):
         for transaction in self:
             transaction.transaction_ref = transaction.payment_transaction_id.provider_reference if transaction.payment_transaction_id else ""
-            transaction.ebiz_transaction_status = transaction.payment_transaction_id.ebiz_transaction_status if transaction else ''
-            transaction.ebiz_transaction_result =  transaction.payment_transaction_id.ebiz_transaction_result if transaction else ''
+            transaction.ebiz_transaction_status = transaction.payment_transaction_id.ebiz_transaction_status if transaction.payment_transaction_id else ''
+            transaction.ebiz_transaction_result = transaction.payment_transaction_id.ebiz_transaction_result if transaction.payment_transaction_id else ''
 
     def action_post(self):
+        # Handle multi-record posting (e.g. batch registering several invoices, or
+        # a mix of invoices and a credit memo which produce payments with different
+        # payment_method_line_id values) before touching any singleton field.
+        if len(self) > 1:
+            provider_obj = self.env['payment.provider'].search(
+                [('company_id', '=', self.company_id.id), ('code', '=', 'ebizcharge')])
+            ebiz_payments = self.filtered(
+                lambda p: p.payment_method_line_id.code == "ebizcharge"
+                          and provider_obj.journal_id.name == p.journal_id.name)
+            if ebiz_payments:
+                raise UserError('Unable to process more than 1 invoice.')
+            return super(AccountPayments, self).action_post()
+
         if self.payment_method_line_id.code != "ebizcharge":
             return super(AccountPayments, self).action_post()
         provider_obj = self.env['payment.provider'].search([('company_id', '=', self.company_id.id),('code', '=', 'ebizcharge')])
-        if provider_obj.journal_id.name == self.journal_id.name and len(self) > 1 and self.payment_method_line_id.code=="ebizcharge":
-            raise UserError('Unable to process more than 1 invoice.')
-        elif len(self) > 1:
-            return super(AccountPayments, self).action_post()
         if self.payment_method_line_id.code == "ebizcharge" and provider_obj.journal_id.name == self.journal_id.name and not self.partner_id.country_id and not self.sub_partner_id.country_id and not \
                 self.env.company.country_id.id:
             raise UserError("Please enter the country for the customer or for the User.")
@@ -233,20 +228,15 @@ class AccountPayments(models.Model):
                     'ebiz_profile_id': default_instance.id,
                 })
 
-        if 'payment_data' in self._context:
-            self_data = self._context['payment_data']
+        if 'payment_data' in self.env.context:
+            self_data = self.env.context['payment_data']
             self.card_id = self_data['tokenid'] if 'tokenid' in self_data else False
             self.ebiz_send_receipt = self_data['ebiz_send_receipt']
             self.ebiz_receipt_emails = self_data['ebiz_receipt_emails']
             if 'token_type' in self_data:
                 self.token_type = self_data['token_type']
 
-        avs_by_pass_check = False
-        if 'avs_bypass' in self._context:
-            if self._context['avs_bypass']:
-                avs_by_pass_check = True
-
-        success_message_keyword = "processed"
+        avs_by_pass_check = bool(self.env.context.get('avs_bypass'))
         self.full_amount = False
         self.new_card = False
         use_full_amount_for_avs = False
@@ -345,9 +335,8 @@ class AccountPayments(models.Model):
                     if command in ['Check', 'Sale']:
                         res = super(AccountPayments, self).action_post()
                         transactions._set_done()
-                        # transactions._log_received_message()
                     self.action_update_payment_methods(self_data)
-                    return message_wizard('Transaction has been successfully {}!'.format(success_message_keyword))
+                    return message_wizard('Transaction has been successfully processed!')
                 # on successful invoice add payment on the invoice
                 proceed = False
                 # full_amount will only be set true if the transaction is with new card
@@ -364,7 +353,7 @@ class AccountPayments(models.Model):
                         res = super(AccountPayments, self).action_post()
                         transactions._set_done()
                     self.action_update_payment_methods(self_data)
-                    return message_wizard('Transaction has been successfully {}!'.format(success_message_keyword))
+                    return message_wizard('Transaction has been successfully processed!')
                 else:
                     if merchant_card_verification:
                         return self.show_payment_response(resp,
@@ -379,31 +368,30 @@ class AccountPayments(models.Model):
         else:
             res = super(AccountPayments, self).action_post()
 
-        if 'payment_data' in self._context:
-            if 'to_reconcile' in self._context['payment_data']:
+        if 'payment_data' in self.env.context:
+            if 'to_reconcile' in self.env.context['payment_data']:
                 self.ebiz_reconcile_payment(source='payment_data')
         return True
 
     def action_create_receipt(self, resp, transactions):
-        receipt = self.env['account.move.receipts'].create({
-            'invoice_id': self.env['account.move'].search([('name', '=', self.payment_transaction_id.reference)]).id,
-            'name': self.env.user.currency_id.symbol + str(transactions.amount) + ' Paid On ' +
-                    str(datetime.now().date()),
-            'ref_nums': resp['RefNum'],
-        })
+        resp_dict = to_dict(resp)
+        if resp_dict and resp_dict.get('RefNum'):
+            receipt = self.env['account.move.receipts'].create({
+                'invoice_id': self.env['account.move'].search([('name', '=', self.payment_transaction_id.reference), ('move_type', '=', 'out_invoice')], limit=1).id,
+                'name': self.env.user.currency_id.symbol + str(transactions.amount) + ' Paid On ' +
+                        str(datetime.now().date()),
+                'ref_nums': resp_dict['RefNum'],
+            })
 
     def action_update_payment_methods(self, self_data):
-        if not self_data['card_save'] and not self.card_id:
-            self.payment_token_id.delete_payment_method()
-            self.partner_id.refresh_payment_methods()
-        if not self_data['ach_save'] and not self.ach_id:
+        if (not self_data['card_save'] and not self.card_id) or (not self_data['ach_save'] and not self.ach_id):
             self.payment_token_id.delete_payment_method()
             self.partner_id.refresh_payment_methods()
 
     def ebiz_reconcile_payment(self, source=False):
         if source:
             to_process = self.env['account.move.line'].search(
-                [('id', 'in', self._context['payment_data']['to_reconcile'])])
+                [('id', 'in', self.env.context['payment_data']['to_reconcile'])])
         else:
             to_process = self.move_id.line_ids.filtered_domain([('debit', '>', 0)])
 
@@ -411,12 +399,10 @@ class AccountPayments(models.Model):
             ('parent_state', '=', 'posted'),
             ('account_type', 'in', ('asset_receivable', 'liability_payable')),
             ('reconciled', '=', False)]
-        for vals in to_process:
-            payment_lines = self.move_id.line_ids.filtered_domain(domain)
-            lines = to_process
-            for account in payment_lines.account_id:
-                (payment_lines + lines).filtered_domain(
-                    [('account_id', '=', account.id), ('reconciled', '=', False)]).reconcile()
+        payment_lines = self.move_id.line_ids.filtered_domain(domain)
+        for account in payment_lines.account_id:
+            (payment_lines + to_process).filtered_domain(
+                [('account_id', '=', account.id), ('reconciled', '=', False)]).reconcile()
 
     def action_send_email_receipt(self):
         if self.send_email_receipt:
@@ -438,25 +424,6 @@ class AccountPayments(models.Model):
             'emailAddress': email,
         }
         form_url = ebiz.client.service.EmailReceipt(**params)
-
-    # @api.model
-    # def default_get(self, default_fields):
-    #     rec = super(AccountPayments, self).default_get(default_fields)
-    #     if 'partner_id' in rec:
-    #         if rec['invoice_ids'][0][2]:
-    #             invoice_ids = rec['invoice_ids'][0][2]
-    #             if len(invoice_ids) > 1:
-    #                 return rec
-    #             sub_partner_id = self.env['account.move'].browse(invoice_ids).partner_id.id
-    #         partner = self.env['res.partner'].browse(rec['partner_id'])
-    #         rec.update({
-    #             'sub_partner_id': sub_partner_id,
-    #             'card_account_holder_name': partner.name,
-    #             'card_avs_street': partner.street,
-    #             'card_avs_zip': partner.zip,
-    #             'ach_account_holder_name': partner.name,
-    #         })
-    #     return rec
 
     def refresh_payment_methods(self):
         self.partner_id.with_context({'donot_sync': True}).ebiz_get_payment_methods()
@@ -543,6 +510,7 @@ class AccountPayments(models.Model):
                 avs_result = self.get_avs_result(resp)
                 if all([x == 'Match' for x in avs_result]) and resp['ResultCode'] == 'A':
                     return True
+                return self.show_payment_response(resp)
             else:
                 self.full_amount = True
                 return True
@@ -564,11 +532,11 @@ class AccountPayments(models.Model):
                 else:
                     self.full_amount = True
                     return True
-        return self.show_payment_response(resp)
+        return True
 
     def validate_card_runcustomertransaction(self):
         try:
-            self_data = self._context['payment_data']
+            self_data = self.env.context['payment_data']
             security_code = self_data['security_code']
             instance = None
             if self.partner_id.ebiz_profile_id:
@@ -593,7 +561,7 @@ class AccountPayments(models.Model):
                 },
             }
             resp = ebiz.client.service.runCustomerTransaction(**params)
-            resp_void = ebiz.execute_transaction(resp['RefNum'], {'command': 'Void'})
+            ebiz.execute_transaction(resp['RefNum'], {'command': 'Void'})
         except Exception as e:
             _logger.exception(e)
             raise UserError(e)
@@ -623,40 +591,37 @@ class AccountPayments(models.Model):
             action['name'] = 'Card Declined'
         wiz = self.env['wizard.ebiz.transaction.validation'].create(validation_params)
         action['res_id'] = wiz.id
-        action['context'] = {'payment_data': self._context['payment_data']}
+        action['context'] = {'payment_data': self.env.context['payment_data']}
         if my_full_amount:
             action['context'] = dict(
                 my_full_amount=True,
-                payment_data=self._context['payment_data'],
+                payment_data=self.env.context['payment_data'],
             )
 
         if customer_token and payment_method_id:
             action['context'] = dict(
                 customer_token_to_dell=customer_token,
                 payment_method_id_to_dell=payment_method_id,
-                payment_data=self._context['payment_data'],
+                payment_data=self.env.context['payment_data'],
             )
 
         if saved_avs_card:
             action['context'] = dict(
                 ebiz_charge_profile=ebizcharge_profile,
-                payment_data=self._context['payment_data'],
+                payment_data=self.env.context['payment_data'],
             )
         return action
 
     @api.depends('journal_id')
     def _compute_journal_code(self):
-        acquirer = self.env['payment.provider'].search(
-            [('company_id', '=', self.company_id.id), ('code', '=', 'ebizcharge')])
-        journal_id = acquirer.journal_id
         for payment in self:
             if payment.payment_method_line_id.code == 'ebizcharge' and (
-                    'payment_data' in self._context or payment.payment_type == 'outbound'):
-                if 'active_id' in self._context and 'active_model' in self._context:
+                    'payment_data' in self.env.context or payment.payment_type == 'outbound'):
+                if 'active_id' in self.env.context and 'active_model' in self.env.context:
                     if self.env['account.move'].search(
-                            [('id', '=', self._context['active_id'])]).move_type == 'out_refund':
+                            [('id', '=', self.env.context['active_id'])]).move_type == 'out_refund':
                         payment.journal_code = 'EBIZC:credit_note'
-                    elif 'payment_data' in self._context:
+                    elif 'payment_data' in self.env.context:
                         payment.journal_code = "EBIZC"
                     else:
                         payment.journal_code = "other"
@@ -667,9 +632,6 @@ class AccountPayments(models.Model):
 
     @api.onchange('partner_id', 'payment_method_id', 'journal_id')
     def _onchange_set_payment_token_id(self):
-        acquirer = self.env['payment.provider'].search(
-            [('company_id', '=', self.company_id.id), ('code', '=', 'ebizcharge')])
-        journal_id = acquirer.journal_id
         su = super(AccountPayments, self)._onchange_set_payment_token_id()
 
         if self.invoice_ids and self.invoice_ids[0].move_type == "out_refund" and self.payment_method_line_id.code == 'ebizcharge':
@@ -693,11 +655,12 @@ class AccountPayments(models.Model):
     def create_credit_card_payment_method(self):
         if not self.partner_id.ebiz_internal_id:
             self.partner_id.sync_to_ebiz()
-        self_data = self._context['payment_data']
+        self_data = self.env.context['payment_data']
+        last4 = self_data['card_card_number'][-4:]
         params = {
             "account_holder_name": self_data['card_account_holder_name'],
             "card_number": self_data['card_card_number'],
-            "payment_details": self_data['card_card_number'],
+            "payment_details": 'XXXXXXXXXXXX%s' % last4,
             "card_exp_year": self_data['card_exp_year'],
             "card_exp_month": self_data['card_exp_month'],
             "avs_street": self_data['card_avs_street'],
@@ -723,6 +686,7 @@ class AccountPayments(models.Model):
         self.reset_credit_card_fields()
         token = self.env['payment.token'].with_context({'from_wizard': True, 'donot_sync': True, }).create(params)
         token.action_sync_token_to_ebiz()
+        token.get_card_type()
         return token
 
     def credit_card_validate_transaction(self):
@@ -748,15 +712,15 @@ class AccountPayments(models.Model):
                 }
             }
             resp = ebiz.client.service.runTransaction(**params)
-            resp_void = ebiz.execute_transaction(resp['RefNum'], {'command': 'Void'})
+            ebiz.execute_transaction(resp['RefNum'], {'command': 'Void'})
         except Exception as e:
             _logger.exception(e)
             raise UserError(e)
         return resp
 
     def _get_credit_card_dict(self):
-        if 'payment_data' in self._context:
-            self_data = self._context['payment_data']
+        if 'payment_data' in self.env.context:
+            self_data = self.env.context['payment_data']
             return {
                 'InternalCardAuth': False,
                 'CardPresent': False,
@@ -770,10 +734,10 @@ class AccountPayments(models.Model):
     def create_bank_account(self):
         if not self.partner_id.ebiz_internal_id:
             self.partner_id.sync_to_ebiz()
-        self_data = self._context['payment_data']
+        self_data = self.env.context['payment_data']
         params = {
             "account_holder_name": self_data['ach_account_holder_name'],
-            "payment_details": self_data['account_number'],
+            "payment_details": 'XXXXX%s' % self_data['account_number'][-4:],
             "account_number": self_data['account_number'],
             "account_type": self_data['account_type'],
             "routing": self_data['routing'],
@@ -799,49 +763,10 @@ class AccountPayments(models.Model):
         return token
 
     def get_avs_result(self, resp):
-        card_code = ''
-        if resp['CardCodeResultCode'] == 'M':
-            card_code = 'Match'
-        elif resp['CardCodeResultCode'] == 'N':
-            card_code = 'No Match'
-        elif resp['CardCodeResultCode'] == 'P':
-            card_code = 'Not Processed'
-        elif resp['CardCodeResultCode'] == 'S':
-            card_code = 'Should be on card but not so indicated'
-        elif resp['CardCodeResultCode'] == 'U':
-            card_code = 'Issuer Not Certified'
-        elif resp['CardCodeResultCode'] == 'X':
-            card_code = 'No response from association'
-        elif resp['CardCodeResultCode'] == '':
-            card_code = 'No CVV2/CVC data available for transaction'
-
-        avs = resp['AvsResultCode']
-        address, zip_code = 'No Match', 'No Match'
-
-        if avs in ['YYY', 'Y', 'YYA', 'YYD']:
-            address = zip_code = 'Match'
-        if avs in ['NYZ', 'Z']:
-            zip_code = 'Match'
-        if avs in ['YNA', 'A', 'YNY']:
-            address = 'Match'
-        if avs in ['YYX', 'X']:
-            address = zip_code = 'Match'
-        if avs in ['NYW', 'W']:
-            zip_code = 'Match'
-        if avs in ['GGG', 'D']:
-            address = zip_code = 'Match'
-        if avs in ['YGG', 'P']:
-            zip_code = 'Match'
-        if avs in ['YYG', 'B', 'M']:
-            address = 'Match'
-
-        # if address == 'No Match':
-        #     address = resp['AvsResult']
-        # if zip_code == 'No Match':
-        #     zip_code = resp['AvsResult']
+        card_code, address, zip_code = _parse_avs_result(resp)
         self.ebiz_avs_street = address
         self.ebiz_avs_zip = zip_code
-        return card_code.strip(), address.strip(), zip_code.strip()
+        return card_code, address, zip_code
 
     def reset_credit_card_fields(self):
         self.write({
@@ -866,16 +791,7 @@ class AccountPayments(models.Model):
                 invoice_id = self.reconciled_invoice_ids[0]
                 if not invoice_id.ebiz_internal_id:
                     invoice_id.sync_to_ebiz()
-                instance = None
-                if self.partner_id.ebiz_profile_id:
-                    instance = self.partner_id.ebiz_profile_id
-                else:
-                    default_instance = self.env['ebizcharge.instance.config'].search(
-                        [('is_valid_credential', '=', True), ('is_default', '=', True)], limit=1)
-                    if default_instance:
-                        instance = default_instance
-
-                ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
+                ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=self._get_ebiz_instance())
                 trans_id = self.payment_transaction_id
 
                 if not trans_id:

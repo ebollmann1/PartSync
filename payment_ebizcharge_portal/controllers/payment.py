@@ -1,28 +1,17 @@
-# -*- coding: utf-8 -*-
-# Part of Odoo. See LICENSE file for full copyright and licensing details.
-from odoo import _ , http
-from odoo.exceptions import AccessError, MissingError, ValidationError
-from odoo.fields import Command
+from odoo import _, http
 from odoo.http import request, route
 from odoo.addons.payment.controllers import portal as payment_portal
-import json
+from odoo.addons.website_sale.controllers.payment import PaymentPortal as website_payment_portal
+from odoo.tools import SQL
+from odoo.exceptions import AccessError, MissingError, UserError, ValidationError
+from psycopg2.errors import LockNotAvailable
+from odoo.fields import Command
 
 
 class PaymentPortal(payment_portal.PaymentPortal):
 
-
-    @http.route('/my/orders/<int:order_id>/transaction', type='json', auth='public')
+    @http.route('/my/orders/<int:order_id>/transaction', type='jsonrpc', auth='public')
     def portal_order_transaction(self, order_id, access_token, **kwargs):
-        """ Create a draft transaction and return its processing values.
-
-        :param int order_id: The sales order to pay, as a `sale.order` id
-        :param str access_token: The access token used to authenticate the request
-        :param dict kwargs: Locally unused data passed to `_create_transaction`
-        :return: The mandatory values for the processing of the transaction
-        :rtype: dict
-        :raise: ValidationError if the invoice id or the access token is invalid
-        """
-        # Check the order id and the access token
         try:
             order_sudo = self._document_check_access('sale.order', order_id, access_token)
         except MissingError as error:
@@ -30,85 +19,109 @@ class PaymentPortal(payment_portal.PaymentPortal):
         except AccessError:
             raise ValidationError(_("The access token is invalid."))
 
-        prv_id_ebiz = 0
-        if 'token_id' in kwargs and kwargs['token_id']!=None:
-            ebiztokenid = request.env['payment.token'].search([('id','=',int(kwargs['token_id']))], limit=1)
-            prv_id_ebiz = ebiztokenid.provider_id.id
-            kwargs.update({
-                'provider_id': ebiztokenid.provider_id.id
-            })
-        # if request.env['payment.provider'].sudo().browse(kwargs['provider_id']).code != 'ebizcharge':
-        #     res = super(PaymentPortal, self).portal_order_transaction(order_id, access_token, **kwargs)
-        #     return res
+        if kwargs.get('token_id'):
+            ebiztokenid = request.env['payment.token'].search([('id', '=', int(kwargs['token_id']))], limit=1)
+            if ebiztokenid:
+                kwargs.update({'provider_id': ebiztokenid.provider_id.id})
+
         logged_in = not request.env.user._is_public()
         partner_sudo = request.env.user.partner_id if logged_in else order_sudo.partner_invoice_id
         self._validate_transaction_kwargs(kwargs)
         kwargs.update({
             'partner_id': partner_sudo.id,
             'currency_id': order_sudo.currency_id.id,
-            # 'provider_id': prv_id_ebiz,
-                'sale_order_id': order_id,  # Include the SO to allow Subscriptions tokenizing the tx
+            'sale_order_id': order_id,
         })
         tx_sudo = self._create_transaction(
             custom_create_values={'sale_order_ids': [Command.set([order_id])]}, **kwargs,
         )
-
         return tx_sudo._get_processing_values()
 
-
-    @route('/invoice/transaction/<int:invoice_id>', type='json', auth='public')
+    @route('/invoice/transaction/<int:invoice_id>', type='jsonrpc', auth='public')
     def invoice_transaction(self, invoice_id, access_token, **kwargs):
-        """ Create a draft transaction and return its processing values.
-
-        :param int invoice_id: The invoice to pay, as an `account.move` id
-        :param str access_token: The access token used to authenticate the request
-        :param dict kwargs: Locally unused data passed to `_create_transaction`
-        :return: The mandatory values for the processing of the transaction
-        :rtype: dict
-        :raise: ValidationError if the invoice id or the access token is invalid
-        """
-        # Check the invoice id and the access token
         try:
             invoice_sudo = self._document_check_access('account.move', invoice_id, access_token)
         except MissingError as error:
             raise error
         except AccessError:
             raise ValidationError(_("The access token is invalid."))
-            
-        prv_id_ebiz = 0
-        if 'token_id' in kwargs and kwargs['token_id']!=None :
-            ebiztokenid = request.env['payment.token'].search([('id','=',int(kwargs['token_id']))], limit=1)
-            prv_id_ebiz = ebiztokenid.provider_id.id
-            kwargs.update({
-                'provider_id': ebiztokenid.provider_id.id
-            })    
-        # if request.env['payment.provider'].sudo().browse(kwargs['provider_id']).code != 'ebizcharge':
-        #     res = super(PaymentPortal, self).invoice_transaction(invoice_id, access_token, **kwargs)
-        #     return res
+
+        if kwargs.get('token_id') is not None:
+            ebiztokenid = request.env['payment.token'].search([('id', '=', int(kwargs['token_id']))], limit=1)
+            kwargs.update({'provider_id': ebiztokenid.provider_id.id})
+
         logged_in = not request.env.user._is_public()
         partner_sudo = request.env.user.partner_id if logged_in else invoice_sudo.partner_id
         self._validate_transaction_kwargs(kwargs)
         kwargs.update({
             'currency_id': invoice_sudo.currency_id.id,
             'partner_id': partner_sudo.id,
-            'web_pay':  "1",
-            # 'provider_id': prv_id_ebiz,
-        })  # Inject the create values taken from the invoice into the kwargs.
-        kwargs.pop('custom_create_values', None)  # Don't allow passing arbitrary create values
+            'web_pay': "1",
+        })
+        kwargs.pop('custom_create_values', None)
         tx_sudo = self._create_transaction(
             custom_create_values={'invoice_ids': [Command.set([invoice_id])]}, **kwargs,
         )
-
         return tx_sudo._get_processing_values()
 
-
-    @http.route(['/refresh_payment_profiles'], type='json', auth='public', )
+    @http.route(['/refresh_payment_profiles'], type='jsonrpc', auth='public')
     def refresh_payment_profiles(self, **kw):
         request.env.user.partner_id.sync_to_ebiz()
         request.env.user.partner_id.refresh_payment_methods(ecom_side=True)
-        res = {
-            'result': True,
-        }
-        json_object = json.dumps(res)
-        return json_object
-        
+        return {'result': True}
+
+
+class WebsitePaymentPortal(website_payment_portal):
+
+    @route('/shop/payment/transaction/<int:order_id>', type='jsonrpc', auth='public', website=True)
+    def shop_payment_transaction(self, order_id, access_token, **kwargs):
+        try:
+            order_sudo = self._document_check_access('sale.order', order_id, access_token)
+            request.env.cr.execute(
+                SQL('SELECT 1 FROM sale_order WHERE id = %s FOR NO KEY UPDATE NOWAIT', order_id)
+            )
+        except MissingError:
+            raise
+        except AccessError as e:
+            raise ValidationError(_("The access token is invalid.")) from e
+        except LockNotAvailable:
+            raise UserError(_("Payment is already being processed."))
+
+        if order_sudo.state == "cancel":
+            raise ValidationError(_("The order has been cancelled."))
+
+        order_sudo._check_cart_is_ready_to_be_paid()
+
+        self._validate_transaction_kwargs(kwargs)
+        kwargs.update({
+            'partner_id': order_sudo.partner_invoice_id.id,
+            'currency_id': order_sudo.currency_id.id,
+            'sale_order_id': order_id,
+        })
+        if not kwargs.get('amount'):
+            kwargs['amount'] = order_sudo.amount_total
+
+        compare_amounts = order_sudo.currency_id.compare_amounts
+        if compare_amounts(kwargs['amount'], order_sudo.amount_total):
+            raise ValidationError(_("The cart has been updated. Please refresh the page."))
+        if compare_amounts(order_sudo.amount_paid, order_sudo.amount_total) == 0:
+            raise UserError(_("The cart has already been paid. Please refresh the page."))
+
+        if delay_payment_request := kwargs.get('flow') == 'token':
+            request.update_context(delay_payment_request=True, delay_token_charge=True)
+        tx_sudo = self._create_transaction(
+            custom_create_values={'sale_order_ids': [Command.set([order_id])]}, **kwargs,
+        )
+
+        request.session['__website_sale_last_tx_id'] = tx_sudo.id
+
+        self._validate_transaction_for_order(tx_sudo, order_sudo)
+        if delay_payment_request:
+            tx_sudo.invalidate_recordset(['state'])
+            if tx_sudo.state not in ('authorized', 'done', 'cancel', 'error'):
+                if 'web_pay' in kwargs:
+                    tx_sudo.with_context({'web_pay': kwargs['web_pay'], 'from_portal': True})._send_payment_request()
+                else:
+                    tx_sudo.sudo().write({'transaction_type': 'pre_auth'})
+                    tx_sudo.with_context({'set_done': True, 'from_portal': True, 'web_pay': '1'})._send_payment_request()
+        return tx_sudo._get_processing_values()

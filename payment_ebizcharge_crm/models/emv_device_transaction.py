@@ -21,8 +21,7 @@ class InvEmvDeviceTransaction(models.Model):
             [('company_id', '=', self.env.company.id), ('code', '=', 'ebizcharge')])
         if payment_acq:
             return payment_acq.journal_id.id
-        else:
-            return None
+        return None
 
     journal_id = fields.Many2one('account.journal', string='Journal')
     payment_token_id = fields.Many2one('payment.token', string="Payment Token ID")
@@ -78,30 +77,32 @@ class InvEmvDeviceTransaction(models.Model):
     def action_draft(self):
         self.write({'state': 'sent'})
 
+    @staticmethod
+    def _prepare_line_values(line):
+        return {
+            "name": line.name,
+            "description": line.description,
+            "cost": line.price_unit,
+            "list_price": line.price_unit,
+            "qty": line.qty,
+            "sku": line.sku,
+            "commoditycode": line.commoditycode,
+            "discountamount": line.discountamount,
+            "discountrate": line.discountrate,
+            "taxable": line.taxable,
+            "taxamount": line.taxamount,
+            "taxclass": line.taxclass,
+            "category": line.category,
+            "manufacturer": line.manufacturer,
+        }
+
     def action_post(self):
         url = "https://secure.ebizcharge.com/api/v2/paymentengine/payrequests"
         headers = {
             "Content-Type": "application/json"
         }
         for transaction in self:
-            line_list = []
-            for line in transaction.emv_device_ids:
-                line_list.append({
-                    "name": line.name,
-                    "description": line.description,
-                    "cost": line.price_unit,
-                    "list_price": line.price_unit,
-                    "qty": line.qty,
-                    "sku": line.sku,
-                    "commoditycode": line.commoditycode,
-                    "discountamount": line.discountamount,
-                    "discountrate": line.discountrate,
-                    "taxable": line.taxable,
-                    "taxamount": line.taxamount,
-                    "taxclass": line.taxclass,
-                    "category": line.category,
-                    "manufacturer": line.manufacturer,
-                })
+            line_list = [self._prepare_line_values(line) for line in transaction.emv_device_ids]
             amount_tax = 0
             custid = 0
             email = ""
@@ -113,62 +114,62 @@ class InvEmvDeviceTransaction(models.Model):
                 amount_tax = transaction.sale_id.amount_tax
                 custid = transaction.sale_id.partner_id.id
                 email =  transaction.sale_id.partner_id.email
+            partner = transaction.partner_id
+            address = {
+                "company": partner.company_name,
+                "street": str(partner.street) + ' ' + str(partner.street2),
+                "postalcode": partner.zip,
+            }
+            payment_memo_setting = transaction.partner_id.ebiz_profile_id.payment_memo_setting
+            doc_number = transaction.invoice
+            if payment_memo_setting == 'dn_pon_pm':
+                doc_number = " ".join(part for part in [doc_number, transaction.ponum] if part)
             data = {
                 "devicekey": transaction.devicekey,
                 "command": transaction.command,
                 "amount": transaction.amount,
                 "software": "ODOO CRM",
                 "customerid": custid,
-                "email" : email if transaction.email_sent else '',
-                "amount_detail": {"subtotal": (transaction.amount-amount_tax), "tax": amount_tax},
+                "email": email if transaction.email_sent else '',
+                "amount_detail": {"subtotal": (transaction.amount - amount_tax), "tax": amount_tax},
                 "timeout": "150",
                 "block_offline": transaction.block_offline,
                 "ignore_duplicate": transaction.block_offline,
                 "save_card": transaction.save_card,
                 "manual_key": transaction.manual_key,
                 "prompt_tip": transaction.prompt_tip,
-                "invoice": transaction.invoice,
+                "invoice": doc_number,
                 "ponum": transaction.ponum,
                 "orderid": transaction.orderid,
                 "description": transaction.description,
-                "billing_address": {
-                    "company": transaction.partner_id.company_name,
-                    "street": str(transaction.partner_id.street) +' '+ str(transaction.partner_id.street2),
-                    "postalcode": transaction.partner_id.zip, },
-                "shipping_address": {
-                    "company": transaction.partner_id.company_name,
-                    "street": str(transaction.partner_id.street) +' '+ str(transaction.partner_id.street2),
-                    "postalcode": transaction.partner_id.zip, },
-                "lineitems": line_list, }
-            api_key = transaction.partner_id.ebiz_profile_id.source_key
+                "billing_address": address,
+                "shipping_address": address,
+                "lineitems": line_list,
+            }
+            api_key = partner.ebiz_profile_id.source_key
             seed = ''
-            pin = transaction.partner_id.ebiz_profile_id.pin
+            pin = partner.ebiz_profile_id.pin
             auth_info = self.generate_auth_info(api_key, seed, pin)
-            headers.update({
-                "Authorization": auth_info,
-            })
+            headers["Authorization"] = auth_info
 
             response = requests.post(url, headers=headers, json=data)
             data_list = response.content
             final_list = json.loads(data_list)
 
             if 'key' in final_list and final_list['key']:
-                print(final_list['key'])
                 url_get_transaction_info = url + '/' + str(final_list['key'])
                 get_info = requests.get(url_get_transaction_info, headers=headers)
                 self.receipt_ref_num = final_list['key']
             self.state = 'sent'
-            
-            
-            
-            
-    def action_create_payment(self, pay, trans_ref):
+
+    def action_create_payment(self, pay, trans_ref, payment_method):
         companyid = pay.sale_id.company_id.id if pay.sale_id else pay.invoice_id.company_id.id
-        prvoider = self.env['payment.provider'].search(
+        provider = self.env['payment.provider'].search(
             [('company_id', '=', companyid), ('code', '=', 'ebizcharge')], limit=1)
         ebiz_method = self.env['account.payment.method.line'].search(
-            [('journal_id', '=', prvoider.journal_id.id),
+            [('journal_id', '=', provider.journal_id.id),
              ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
+        payment_memo_setting = pay.partner_id.ebiz_profile_id.payment_memo_setting
         payment_record = {
             'journal_id': pay.journal_id.id,
             'payment_method_id': ebiz_method.payment_method_id.id,
@@ -181,8 +182,14 @@ class InvEmvDeviceTransaction(models.Model):
         }
         payment = self.env['account.payment'].sudo().create(payment_record)
         if pay.sale_id:
+            doc_number = pay.sale_id.name
+            if payment_memo_setting == 'dn_pon_pm':
+                doc_number = " ".join(
+                    part for part in [doc_number, pay.sale_id.client_order_ref, payment_method] if part)
+            payment.memo = doc_number
+            payment.payment_type = 'inbound'
             transaction_vals = {
-                'provider_id': prvoider.id,
+                'provider_id': provider.id,
                 'payment_method_id': ebiz_method.payment_method_id.id,
                 'amount': pay.amount,
                 'currency_id': pay.sale_id.currency_id.id,
@@ -192,14 +199,19 @@ class InvEmvDeviceTransaction(models.Model):
                 'emv_transaction': True,
                 'provider_reference': trans_ref,
                 'payment_id': payment.id,
-                'sale_order_ids': [pay.sale_id.id],
+                'sale_order_ids': [fields.Command.link(pay.sale_id.id)],
+                'transaction_type': 'deposit' if pay.command != 'AuthOnly' else False,
             }
             trans_vals = self.env['payment.transaction'].sudo().create(transaction_vals)
             trans_vals._set_authorized()
-            if pay.command!='AuthOnly':
+            if pay.command != 'AuthOnly':
                 trans_vals._set_done()
                 payment.action_post()
         else:
+            doc_number = pay.invoice_id.name
+            if payment_memo_setting == 'dn_pon_pm':
+                doc_number = " ".join(part for part in [doc_number, pay.invoice_id.ref, payment_method] if part)
+            payment.memo = doc_number
             payment.action_post()       
         domain = [
             ('parent_state', '=', 'posted'),
@@ -213,51 +225,60 @@ class InvEmvDeviceTransaction(models.Model):
                 [('account_id', '=', account.id), ('reconciled', '=', False)]).reconcile()
         return payment
 
+    @api.model
+    def get_card_type_selection(self):
+        icons_dict = {
+            'A': 'American Express',
+            'DS': 'Discover',
+            'M': 'Master Card',
+            'V': 'VISA'
+        }
+        sel = list(icons_dict.items())
+        return sel
+
+    def get_payment_method(self, payment_details, card_type):
+        card_types = self.get_card_type_selection()
+        card_types = {x[0]: x[1] for x in card_types}
+        if payment_details and card_type and card_type != 'Unknown':
+            c_type = card_types['DS' if card_type not in card_types else card_type]
+            return '%s Ending in %s (%s)' % (c_type, payment_details[-4:], 'Card')
+        return ''
+
     def action_check(self, trans=None):
 
         url = "https://secure.ebizcharge.com/api/v2/paymentengine/payrequests"
         headers = {
             "Content-Type": "application/json"
         }
-        transaction_sent = self.env['emv.device.transaction'].search([('state','=','sent')])
-        if trans!=None:
-            transaction_sent = self.env['emv.device.transaction'].search([('state', '=', 'sent'),('id','=',trans)])
+        domain = [('state', '=', 'sent')]
+        if trans is not None:
+            domain.append(('id', '=', trans))
+        transaction_sent = self.search(domain)
         for trans_snt in transaction_sent:
             api_key = trans_snt.partner_id.ebiz_profile_id.source_key
             seed = ''
             pin = trans_snt.partner_id.ebiz_profile_id.pin
             auth_info = trans_snt.generate_auth_info(api_key, seed, pin)
-            headers.update({
-                "Authorization": auth_info,
-            })
+            headers["Authorization"] = auth_info
             url_get_transaction_info = url + '/' + str(trans_snt.receipt_ref_num)
             get_info = requests.get(url_get_transaction_info, headers=headers)
             data_list = get_info.content
             final_list = json.loads(data_list)
             message = ""
-            # if 'status' in final_list and final_list['status']=="transaction complete":
             if final_list.get('transaction') and final_list.get('transaction').get('result_code'):
                 if final_list.get('transaction').get('result_code') == 'A':
+                    payment_method = ''
+                    credit_card = final_list.get('transaction').get('creditcard')
+                    if credit_card and credit_card.get('number') and credit_card.get('type'):
+                        payment_method = self.get_payment_method(credit_card.get('number'), credit_card.get('type'))
                     trans_ref = final_list['transaction']['refnum']
-                    trans_snt.action_create_payment(trans_snt, trans_ref)
+                    trans_snt.action_create_payment(trans_snt, trans_ref, payment_method)
                     trans_snt.state = 'approve'
                     message = 'EMV Device ' + str(final_list['status'])
                 else:
                     if final_list.get('transaction').get('result'):
                         message = 'EMV Device Transaction ' + str(final_list.get('transaction').get('result'))
                         trans_snt.state = 'cancel'
-                # if trans_snt.email_sent==True:
-                #    ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=trans_snt.partner_id.ebiz_profile_id)
-                #    receipt_mercht = self.env['email.receipt'].search([('instance_id','=',trans_snt.partner_id.ebiz_profile_id.id), ('content_type','=', 'TransactionReceiptMerchant')], limit=1)
-                #   if receipt_mercht and trans_snt.partner_id.email:
-                #       params = {
-                #          'securityToken': ebiz._generate_security_json(),
-                #          'transactionRefNum': trans_ref,
-                #          'receiptRefNum': receipt_mercht.receipt_id,
-                #          'receiptName': receipt_mercht.name,
-                #          'emailAddress': trans_snt.partner_id.email,
-                #       }
-                # form_url = ebiz.client.service.EmailReceipt(**params)
             elif 'status' in final_list and final_list['status']=='sent to device':
                 message= 'Transaction '+str(final_list['status'])
             else:
@@ -270,8 +291,6 @@ class InvEmvDeviceTransaction(models.Model):
             if trans_snt.sale_id:
                 trans_snt.sale_id.log_status_emv = message
                 trans_snt.sale_id.emv_transaction_id = trans_snt.id
-            # raise UserError(str(final_list))
-
 
     def action_cancel(self):
         self.write({'state': 'cancel'})
@@ -285,11 +304,10 @@ class InvEmvDeviceTransaction(models.Model):
         hash_value = self.generate_hash(device_key, seed, pin)
         auth_info = str(device_key) + ':s2/' + str(seed) + '/' + str(hash_value)
         encoded_auth_info = base64.b64encode(auth_info.encode()).decode()
-        # print(str('/') + ' ' + encoded_auth_info)
         return 'Basic ' + encoded_auth_info
 
 
-class InvEmvDeviceTransaction(models.Model):
+class LineEmvDeviceTransaction(models.Model):
     _name = 'line.emv.device.transaction'
     _description = "EMV Device Transaction"
 

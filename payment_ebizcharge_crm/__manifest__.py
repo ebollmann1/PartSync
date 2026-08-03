@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 
 {
-    'name': 'EBizCharge Payment Acquirer',
+    'name': 'EBizCharge Payment Provider',
+    'author': "EBizCharge by Century Business Solutions",
+    'website': "https://ebizcharge.com",
     'category': 'Accounting/Payment',
     'summary': 'Payment Provider: EBizCharge Implementation',
-    'version': '1.0',
+    'version': '1.1',
     'description': """EBizCharge Payment Gateway""",
     'depends': ['base','contacts', 'web', 'mail', 'payment', 'sale', 'account', 'stock'],
     'data': [
@@ -16,12 +18,10 @@
         'views/email_receipt_view.xml',
         'views/email_template_view.xml',
         'views/transaction_history_view.xml',
-
         'views/payment_token_view.xml',
         'views/payment_transaction_view.xml',
         'data/payment_acquirer_data.xml',
         'views/res_config_setting_view.xml',
-
         'views/res_company_view.xml',
         'views/sale_register_payment_view.xml',
         'views/sale_order_view.xml',
@@ -86,6 +86,12 @@
         'web.assets_backend': [
             'payment_ebizcharge_crm/static/src/scss/backend.scss',
             'payment_ebizcharge_crm/static/src/components/**/*',
+            'payment_ebizcharge_crm/static/src/js/boolean_toggle_instant_save.js',
+            'payment_ebizcharge_crm/static/src/views/fields/copy_clipboard/copy_clipboard_field.js',
+            'payment_ebizcharge_crm/static/src/views/fields/copy_clipboard/copy_clipboard_field.scss',
+            'payment_ebizcharge_crm/static/src/views/fields/copy_clipboard/copy_clipboard_field.xml',
+            'payment_ebizcharge_crm/static/src/views/web/fields/icon_char_field.js',
+            'payment_ebizcharge_crm/static/src/views/web/fields/icon_char_field.xml',
         ],
     },
     'license': 'LGPL-3',

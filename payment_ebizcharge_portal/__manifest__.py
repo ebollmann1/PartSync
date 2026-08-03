@@ -6,7 +6,7 @@
     'summary': "Payment Provider: EBizCharge Implementation",
     'category': 'Website/Payment',
     'description': """EBizCharge Payment Gateway""",
-    'version': '1.0',
+    'version': '1.1',
 
     # any module necessary for this one to work correctly
     'depends': ['base', 'website_sale', 'payment_ebizcharge_crm'],
@@ -26,14 +26,12 @@
     'external_dependencies': {'python': ['zeep']},
     'assets': {
         'web.assets_frontend': [
-            # 'payment_ebizcharge_portal/static/src/scss/portal_payment.scss',
-            'payment_ebizcharge_portal/static/src/js/payment_form.js',
+            'payment_ebizcharge_portal/static/src/interactions/payment_form.js',
             'payment_ebizcharge_portal/static/src/js/ebiz_manage_form.js',
-            # 'payment_ebizcharge_portal/static/src/js/manage_form.js',
-            # 'payment_ebizcharge_portal/static/src/js/checkout_form.js',
+            'payment_ebizcharge_portal/static/src/js/confirm_account_number.js',
             'payment_ebizcharge_portal/static/lib/jquery.payment/jquery.payment.js',
             'payment_ebizcharge_portal/static/src/js/payment_portal.js',
-            # 'payment_ebizcharge_portal/static/src/xml/post_process.xml',
+            'payment_ebizcharge_portal/static/src/scss/portal_payment.scss',
         ],
         'web.assets_backend': [
             'payment_ebizcharge_portal/static/src/scss/backend.scss',

@@ -45,10 +45,12 @@
                         Batch Processing for Invoices
                     </h1>
                     <field invisible="1" name="is_surcharge"/>
-                    <div class="fa fa-info-circle text-nowrap" invisible="not is_surcharge" style="padding:10px;background-color:#E4D4E0;font-weight:bold;font-size:15px;margin:2px;border-radius:4px;">
-                        <span style="margin-left:7px;">
-                        </span>
-                        <field invisible="not is_surcharge" name="surcharge_terms" readonly="1"/>
+                    <field invisible="1" name="is_surcharge_enabled"/>
+                    <field invisible="1" name="is_surcharge_toggle_visible"/>
+                    <field invisible="1" name="is_surcharge_toggle_for_all_visible"/>
+                    <field invisible="1" name="is_surcharge_terms_visible"/>
+                    <div class="alert alert-info fw-bold" role="alert" style="max-width: fit-content;" invisible="not is_surcharge_terms_visible">
+                        <field name="surcharge_terms" readonly="1"/>
                     </div>
                     <br/><br/>
                     <group>
@@ -68,8 +70,15 @@
                     <br/><br/>
                     <notebook colspan="3">
                         <page string="List">
-                            <field class="notebook_width" invisible="not transaction_history_line" mode="list" name="transaction_history_line" widget="batch_processing">
-                                <list delete="false" limit="15" no_open="1" string="Invoices">
+                            <field class="notebook_width" invisible="not transaction_history_line" mode="list" name="transaction_history_line" widget="x2many_selection_actions">
+                                <list multi_edit="0" create="0" delete="0" limit="15" no_open="1" string="Invoices">
+                                    <header>
+                                        <button class="btn-primary" name="process_invoices" type="object" string="Process Invoices"/>
+                                        <field name="enable_surcharge_for_all" widget="boolean_toggle" string="Enable Surcharge for ALL"
+                                               invisible="not parent.is_surcharge_toggle_for_all_visible"/>
+                                        <field name="send_receipt" string="Send receipt to customer"/>
+                                    </header>
+                                    <field column_invisible="1" name="id"/>
                                     <field column_invisible="1" name="invoice_id"/>
                                     <field column_invisible="1" name="send_receipt"/>
                                     <field column_invisible="1" name="default_card_id"/>
@@ -81,8 +90,15 @@
                                     <field column_invisible="1" name="currency_id" readonly="1"/>
                                     <field name="amount" options="{'currency_field': 'currency_id'}" readonly="1" widget="monetary"/>
                                     <field class="after_it" name="amount_residual" options="{'currency_field': 'currency_id'}" readonly="1" widget="monetary"/>
-                                    <field column_invisible="1" name="payment_method"/>
+                                    <field name="inv_enable_sur" widget="boolean_toggle"
+                                           column_invisible="not parent.is_surcharge_toggle_visible" readonly="token_type == 'ach'"/>
+                                    <field name="payment_method"/>
                                     <field name="email" readonly="1"/>
+                                    <field name="inv_batch_sur_ctrl" column_invisible="1"/>
+                                    <field name="token_type" column_invisible="1"/>
+                                    <field name="is_surcharge_enabled" column_invisible="1"/>
+                                    <field name="merchant_toggle_sur_per_txn" column_invisible="1"/>
+                                    <field name="is_surcharge_toggle_visible" column_invisible="1"/>
                                     <field column_invisible="1" name="generated_link" />
                                     
                                 </list>
@@ -100,14 +116,20 @@
                             </div>
                         </page>
                         <page name="batch_log" string="Logs">
-                            <field class="notebook_width" invisible="not transaction_log_lines" mode="list" name="transaction_log_lines" widget="batch_processing">
-                                <list delete="false" limit="15" no_open="1" string="Logs">
+                            <field class="mt-3 notebook_width" invisible="not transaction_log_lines" mode="list" name="transaction_log_lines" widget="x2many_selection_actions" options="{'link': False, 'unlink': False}">
+                                <list multi_edit="0" create="0" delete="0" link="0" unlink="0" limit="15" no_open="1" string="Logs">
+                                    <header>
+                                        <button class="btn-primary" name="clear_logs" type="object" string="CLEAR LOG"/>
+                                    </header>
+                                    <field name="id" column_invisible="1"/>
                                     <field name="name" readonly="1"/>
                                     <field name="customer_name" readonly="1"/>
                                     <field name="customer_id" readonly="1"/>
                                     <field name="date_paid" readonly="1"/>
                                     <field column_invisible="1" name="currency_id" readonly="1"/>
                                     <field name="amount_paid" options="{'currency_field': 'currency_id'}" readonly="1" widget="monetary"/>
+                                    <field name="is_surcharged" readonly="1" widget="boolean_toggle"
+                                           column_invisible="not parent.is_surcharge_toggle_visible"/>
                                     <field name="payment_method" readonly="1"/>
                                     <field name="auth_code" readonly="1"/>
                                     <field name="transaction_ref" readonly="1"/>
@@ -132,18 +154,12 @@
             </field>
         </record>
 
-        <data noupdate="1">
-            <record id="my_record_78" model="batch.processing">
-                <field name="add_filter">0</field>
-            </record>
-        </data>
-
-        <record id="batch_processing_action" model="ir.actions.act_window">
-            <field name="name">Batch Processing Action</field>
-            <field name="res_model">batch.processing</field>
-            <field name="res_id" ref="my_record_78"/>
-            <field name="view_mode">form</field>
-            <field name="target">inline</field>
+        <record id="batch_processing_action" model="ir.actions.server">
+            <field name="name">Batch Processing</field>
+            <field name="type">ir.actions.server</field>
+            <field name="model_id" ref="payment_ebizcharge_crm.model_batch_processing"/>
+            <field name="state">code</field>
+            <field name="code">action = model.action_open_batch_processing()</field>
         </record>
 
         <menuitem action="batch_processing_action" id="batch_processing_menu_up" name="Batch Processing for Invoices" parent="ebiz_transactions_menu_main"/>

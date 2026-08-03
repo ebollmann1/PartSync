@@ -23,6 +23,7 @@
                                                    options="{'currency_field': 'currency_id'}" widget="monetary"/>
                                             <field name="request_amount"
                                                    options="{'currency_field': 'currency_id'}" widget="monetary"/>
+                                            <field name="enable_surcharge" widget="boolean_toggle" column_invisible="not parent.is_surch_enable or not parent.merchant_toggle_sur_per_txn"/>
                                         </list>
                                     </field>
                                 </div>

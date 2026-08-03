@@ -12,8 +12,13 @@ class MessageConfirmWizard(models.TransientModel):
 
 
     def action_confirm(self):
-        self.wizard_id.with_context({'from_confirm_wizard': True}).fetch_again()
-
+        self.wizard_id.regenerate_line_ids()
 
     def action_apply_pay(self):
-        self.wizard_id.mark_as_applied(self.env.context.get('kwargs_values'))
+        if self.env.context.get('line_ids') and self.env.context.get('line_model') and self.env.context.get('need_payment_on_account_ids'):
+            need_payment_on_account_ids = self.env[self.env.context.get('line_model')].browse(self.env.context.get('need_payment_on_account_ids'))
+            need_payment_on_account_ids.is_payment_on_account = True
+            line_ids = self.env[self.env.context.get('line_model')].browse(self.env.context.get('line_ids'))
+            line_ids.mark_as_applied()
+        else:
+            self.wizard_id.regenerate_line_ids()

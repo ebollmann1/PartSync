@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="payment_ebizcharge_crm.X2ManySelectionField">
+        <div t-att-class="className" t-ref="root">
+            <div class="o_x2m_control_panel d-empty-none mt-1 mb-3" t-ref="control" style="position:relative;">
+                <div class="o_x2m_toolbar_row" style="display:flex;align-items:center;justify-content:space-between;">
+                    <div class="o_x2m_toolbar_start">
+                        <div class="o_x2m_search_replace d-flex align-items-center">
+                            <label class="o_switch" t-if="isEnableSurchargeForAllVisible()">
+                                <input type="checkbox" class="enable_surcharge_for_all_check" name="enable_surcharge_for_all"
+                                       t-att-checked="hasAllInvoicesSurchargedEnabled()"
+                                       id="batch_proc_inv_enable_sur_for_all"
+                                       t-on-change="(ev) => this.onEnableSurAllInputChange(ev.target.checked)"/>
+                                <span/>
+                                <strong style="margin-left: 8px;"> Enable Surcharge for All</strong>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="o_x2m_toolbar_center" t-ref="center" style="display:flex;gap:.5rem;align-items:center;">
+                        <div t-if="hasSelectedRecords" class="o_selection_container d-flex flex-wrap align-items-center gap-1 justify-content-center">
+                            <SelectionBox root="list"/>
+                        </div>
+                        <div class="o_x2m_header_buttons d-flex flex-wrap justify-content-center gap-1">
+                            <t t-if="hasSelectedRecords">
+                                <t t-foreach="selectionHeaderFields" t-as="field" t-key="field.name"
+                                   t-if="field.name !== 'enable_surcharge_for_all' and (!field.invisible or !evalInvisible(field.invisible))">
+                                    <CheckBox
+                                        disabled="field.readonly ? evalInvisible(field.readonly) : false"
+                                        className="'o_field_boolean o_boolean_toggle form-switch o_x2m_selection_checkbox me-2 align-self-center'"
+                                        name="field.name"
+                                        value="getSelectionToolbarValue(field.name)"
+                                        onChange="(value) => this.onSelectionToolbarValueChange(field.name, value)"
+                                    >
+                                        <t t-esc="field.string"/>
+                                    </CheckBox>
+                                </t>
+                                <t
+                                    t-foreach="selectionHeaderButtons"
+                                    t-as="button"
+                                    t-key="button.id"
+                                    t-if="!evalInvisible(button.invisible)"
+                                >
+                                    <X2ManySelectionViewButton
+                                        list="list"
+                                        className="button.className"
+                                        clickParams="button.clickParams"
+                                        defaultRank="'btn-secondary'"
+                                        domain="[]"
+                                        icon="button.icon"
+                                        string="button.string"
+                                        title="button.title"
+                                        attrs="button.attrs"
+                                        extraButtonContext="selectionToolbarButtonContext"
+                                    />
+                                </t>
+                            </t>
+                        </div>
+                        <t t-if="displayControlPanelButtons">
+                            <div
+                                class="o_cp_buttons gap-1"
+                                role="toolbar"
+                                aria-label="Control panel buttons"
+                                t-ref="buttons"
+                            >
+                                <t t-foreach="controls" t-as="control" t-key="control_index">
+                                    <button
+                                        t-if="control.type === 'create' and !evalInvisible(control.invisible)"
+                                        type="button"
+                                        class="btn btn-secondary"
+                                        t-att-class="control.class"
+                                        t-on-click.stop.prevent="() => this.onAdd({ context: control.context })"
+                                    >
+                                        <t t-esc="control.string"/>
+                                    </button>
+                                    <ViewButton
+                                        t-if="control.type === 'button' and !evalInvisible(control.invisible)"
+                                        className="`${control.className}`"
+                                        clickParams="control.clickParams"
+                                        icon="control.icon"
+                                        record="props.record.data[props.name]"
+                                        string="control.string"
+                                        title="control.title"
+                                    />
+                                </t>
+                            </div>
+                        </t>
+                    </div>
+                    <div class="o_x2m_toolbar_end">
+                        <div
+                            t-if="list.count > list.limit"
+                            class="o_cp_pager"
+                            t-ref="pager"
+                            role="search"
+                            style="position:absolute;"
+                        >
+                            <Pager t-props="pagerProps"/>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <ListRenderer t-if="props.viewMode === 'list'" t-props="this.rendererProps" />
+            <KanbanRenderer t-elif="props.viewMode" t-props="this.rendererProps" />
+        </div>
+    </t>
+
+</templates>

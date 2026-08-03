@@ -11,21 +11,6 @@
             <field name="support_refund">partial</field>
         </record>
 
-        <record id="default_ebizcharge_product" model="product.product">
-            <field name="name">EBizCharge over deposit</field>
-            <field name="sale_ok">True</field>
-            <field name="standard_price">0.00</field>
-            <field name="list_price">0.00</field>
-            <field name="weight">0.00</field>
-            <field name="type">service</field>
-            <field name="taxes_id" eval="[(5,)]"/>
-            <field name="supplier_taxes_id" eval="[(5,)]"/>
-            <field name="categ_id" ref="product.product_category_all"/>
-            <field name="uom_id" ref="uom.product_uom_unit"/>
-            <field name="uom_po_id" ref="uom.product_uom_unit"/>
-            <field name="purchase_ok">True</field>
-        </record>
-
         <record id="payment_method_ebizcharge_in" model="account.payment.method">
             <field name="name">EBizCharge</field>
             <field name="code">ebizcharge</field>
@@ -38,19 +23,12 @@
             <field name="payment_type">outbound</field>
         </record>
 
-<!--        <record id="account_journal_ebizcharge" model="account.journal">-->
-<!--            <field name="name">EBizCharge</field>-->
-<!--            <field name="type">bank</field>-->
-<!--            <field name="code">EBIZC</field>-->
-<!--        </record>-->
-
         <record id="payment_provider_ebizcharge" model="payment.provider">
             <field name="name">EBizCharge</field>
             <field name="image_128"
                    type="base64"
                    file="payment_ebizcharge_crm/static/src/img/ebiz_icon.png"/>
             <field name="module_id" ref="base.module_payment_ebizcharge_crm"/>
-<!--            <field name="journal_id" ref="payment_ebizcharge_crm.account_journal_ebizcharge"/>-->
             <field name="payment_method_ids"
                    eval="[(6, 0, [
                    ref('payment.payment_method_card'),
@@ -63,7 +41,7 @@
                    ref('payment_ebizcharge_crm.payment_method_ebizcharge'),
                 ])]"/>
             <field name="code">ebizcharge</field>
-            <field name="capture_manually">True</field>
+<!--            <field name="capture_manually">True</field>-->
             <field name="support_refund">partial</field>
             <field name="support_tokenization">True</field>
             <field name="allow_tokenization">True</field>

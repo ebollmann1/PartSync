@@ -23,7 +23,8 @@
                     <button class="oe_highlight" name="generate_link" string="Generate Payment Link" type="object"/>
                     <button special="cancel" string="Cancel"/>
                 </footer>
-            </form></field>
+            </form>
+        </field>
     </record>
 
     <record id="ebiz_payment_copy_wizard_view_form" model="ir.ui.view">
@@ -31,45 +32,38 @@
         <field name="model">ebiz.payment.link.copy</field>
         <field name="arch" type="xml">
             <form string="Copy Payment Link">
-                <group>
-                        </group>
-                    <field name="link" readonly="1" widget="CopyClipboardChar" invisible="not link"/>
-                     <div>
-                        <div class="row">
-                            <div class="col-12">
-                                <div>
-                            <field name="copy_link_lines" nolabel="1" readonly='0'>
-                                <list string="Copy Payment Lines" editable="bottom" edit="1"
-                                      create="false" delete="false" limit="15">
-                                    <field name="number" readonly="1"/>
-                                    <field name="link" widget="CopyClipboardChar"/>
-                                </list>
-                            </field>
-                                </div>
+                <field name="link" readonly="1" widget="CopyClipboardLink" invisible="not link"/>
+                <div>
+                    <div class="row">
+                        <div class="col-12">
+                            <div>
+                                <field name="copy_link_lines" nolabel="1">
+                                    <list string="Copy Payment Lines" no_open="1" create="false" delete="false" limit="15">
+                                        <field name="number" readonly="1"/>
+                                        <field name="link" readonly="1" widget="CopyClipboardLink"/>
+                                    </list>
+                                </field>
+                            </div>
+                        </div>
                     </div>
-                    </div>
-                    </div>
-
-
+                </div>
                 <footer>
                     <button class="btn-primary" special="cancel" string="Close"/>
                 </footer>
-            </form></field>
+            </form>
+        </field>
     </record>
 
-            <!-- Wizard Action for Generate Payment Link for Invoices  -->
-        <record id="wizard_copy_link_form_views_action" model="ir.actions.act_window">
-            <field name="name">Payment Links</field>
-            <field name="type">ir.actions.act_window</field>
-            <field name="res_model">ebiz.payment.link.copy</field>
-            <field name="view_mode">form</field>
-            <field name="view_id" ref="ebiz_payment_copy_wizard_view_form"/>
-            <field name="context">{'compute_from_view': True}</field>
-            <field name="target">new</field>
-        </record>
-
-
-
+    <!-- Wizard Action for Generate Payment Link for Invoices  -->
+    <record id="wizard_copy_link_form_views_action" model="ir.actions.act_window">
+        <field name="name">Payment Links</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">ebiz.payment.link.copy</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="ebiz_payment_copy_wizard_view_form"/>
+        <field name="context">{'compute_from_view': True}</field>
+        <field name="target">new</field>
+    </record>
 
     <record id="ebiz_action_invoice_order_generate_link" model="ir.actions.server">
         <field name="name">Generate an EBizCharge Payment Link</field>
@@ -81,7 +75,6 @@
         <field name="code">action = records.generate_payment_link()</field>
     </record>
 
-
     <record id="ebiz_action_so_order_generate_link" model="ir.actions.server">
         <field name="name">Generate an EBizCharge Payment Link</field>
         <field name="type">ir.actions.server</field>
@@ -91,5 +84,4 @@
         <field name="state">code</field>
         <field name="code">action = records.generate_payment_link()</field>
     </record>
-
 </odoo>

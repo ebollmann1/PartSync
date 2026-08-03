@@ -1,9 +1,9 @@
 from odoo import fields, models, api, _
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import ValidationError
 import logging
 from datetime import datetime
 from ..models.ebiz_charge import message_wizard
-from ..utils import strtobool
+from ..tools import _year_selection_from_current, _month_selection, _parse_avs_result
 
 _logger = logging.getLogger(__name__)
 
@@ -14,22 +14,11 @@ class WizardAddNewCard(models.TransientModel):
 
     @api.model
     def year_selection(self):
-        today = fields.Date.today()
-        # year =  # replace 2000 with your a start year
-        year = today.year
-        max_year = today.year + 30
-        year_list = []
-        while year != max_year:  # replace 2030 with your end year
-            year_list.append((str(year), str(year)))
-            year += 1
-        return year_list
+        return _year_selection_from_current()
 
     @api.model
     def month_selection(self):
-        m_list = []
-        for i in range(1, 13):
-            m_list.append((str(i), str(i)))
-        return m_list
+        return _month_selection()
 
     def _compute_required_sc(self):
         self.required_security_code = self.partner_id.ebiz_profile_id.verify_card_before_saving
@@ -73,14 +62,11 @@ class WizardAddNewCard(models.TransientModel):
                         raise ValidationError(_("Zip/Postal Code can only include numbers, letters, and '-'."))
             elif not self.card_avs_zip.isalnum():
                 raise ValidationError(_("Zip/Postal Code can only include numbers, letters, and '-'."))
-
         return self.validate_card()
 
     def validate_card(self):
         self.ensure_one()
-        verify_card_before_saving = False
-        if self.partner_id.ebiz_profile_id:
-            verify_card_before_saving = self.partner_id.ebiz_profile_id.verify_card_before_saving
+        verify_card_before_saving = self.partner_id.ebiz_profile_id.verify_card_before_saving
         if verify_card_before_saving:
             resp = self.credit_card_validate_transaction()
             avs_result = self.get_avs_result(resp)
@@ -93,11 +79,9 @@ class WizardAddNewCard(models.TransientModel):
     def make_default(self, current_pointer):
         default_tokens = self.partner_id.payment_token_ids.filtered(lambda x: x.is_default and x.provider_id.code == 'ebizcharge')
         if default_tokens:
-            self.partner_id.payment_token_ids.filtered(lambda x: x.is_default and x.provider_id.code == 'ebizcharge').write({'is_default': False})
+            default_tokens.write({'is_default': False})
         current_pointer.write({'is_default': True})
-        instance = None
-        if self.partner_id.ebiz_profile_id:
-            instance = self.partner_id.ebiz_profile_id
+        instance = self.partner_id.ebiz_profile_id or None
 
         ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
         resp = ebiz.client.service.SetDefaultCustomerPaymentMethodProfile(**{
@@ -113,7 +97,7 @@ class WizardAddNewCard(models.TransientModel):
             'payment_method_id': method,
             "account_holder_name": self.card_account_holder_name,
             "card_number": self.card_card_number,
-            "payment_details": self.card_card_number,
+            "payment_details": 'XXXXXXXXXXXX%s' % self.card_card_number[-4:],
             "card_exp_year": str(self.card_exp_year),
             "card_exp_month": str(self.card_exp_month),
             "avs_street": self.card_avs_street,
@@ -142,7 +126,7 @@ class WizardAddNewCard(models.TransientModel):
     def create_credit_card_payment_method_default_msg(self):
         params = {
             "account_holder_name": self.card_account_holder_name,
-            "payment_details": self.card_account_holder_name,
+            "payment_details": 'XXXXXXXXXXXX%s' % self.card_card_number[-4:],
             "card_number": self.card_card_number,
             "card_exp_year": str(self.card_exp_year),
             "card_exp_month": str(self.card_exp_month),
@@ -166,6 +150,7 @@ class WizardAddNewCard(models.TransientModel):
             "active": True,
         })
         card = self.env['payment.token'].with_context({'from_wizard': True,'donot_sync': True}).create(params)
+        card.get_card_type()
         if self.make_default_card:
             check = self.partner_id.payment_token_ids.filtered(
                 lambda x: x.is_default and x.id != self.id and x.provider_id.code == 'ebizcharge')
@@ -214,10 +199,7 @@ class WizardAddNewCard(models.TransientModel):
 
     def credit_card_validate_transaction(self):
         try:
-            instance = None
-            if self.partner_id.ebiz_profile_id:
-                instance = self.partner_id.ebiz_profile_id
-
+            instance = self.partner_id.ebiz_profile_id or None
             ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
             params = {
                 "securityToken": ebiz._generate_security_json(),
@@ -241,47 +223,7 @@ class WizardAddNewCard(models.TransientModel):
         return resp
 
     def get_avs_result(self, resp):
-        card_code = ''
-        if resp['CardCodeResultCode'] == 'M':
-            card_code = 'Match'
-        elif resp['CardCodeResultCode'] == 'N':
-            card_code = 'No Match'
-        elif resp['CardCodeResultCode'] == 'P':
-            card_code = 'Not Processed'
-        elif resp['CardCodeResultCode'] == 'S':
-            card_code = 'Should be on card but not so indicated'
-        elif resp['CardCodeResultCode'] == 'U':
-            card_code = 'Issuer Not Certified'
-        elif resp['CardCodeResultCode'] == 'X':
-            card_code = 'No response from association'
-        elif resp['CardCodeResultCode'] == '':
-            card_code = 'No CVV2/CVC data available for transaction'
-
-        avs = resp['AvsResultCode']
-        address, zip_code = 'No Match', 'No Match'
-        if avs in ['YYY', 'Y', 'YYA', 'YYD']:
-            address = zip_code = 'Match'
-        if avs in ['NYZ', 'Z']:
-            zip_code = 'Match'
-        if avs in ['YNA', 'A', 'YNY']:
-            address = 'Match'
-        if avs in ['YYX', 'X']:
-            address = zip_code = 'Match'
-        if avs in ['NYW', 'W']:
-            zip_code = 'Match'
-        if avs in ['GGG', 'D']:
-            address = zip_code = 'Match'
-        if avs in ['YGG', 'P']:
-            zip_code = 'Match'
-        if avs in ['YYG', 'B', 'M']:
-            address = 'Match'
-
-        if address == 'No Match':
-            address = resp['AvsResult']
-        if zip_code == 'No Match':
-            zip_code = resp['AvsResult']
-
-        return card_code.strip(), address.strip(), zip_code.strip()
+        return _parse_avs_result(resp)
 
 
 class WizardValidateDefault(models.TransientModel):
@@ -293,16 +235,16 @@ class WizardValidateDefault(models.TransientModel):
     text = fields.Text('Message', readonly=True)
 
     def accept_default(self):
-        self.default_token_id.is_default = False
+        self.default_token_id.write({'is_default': False})
         self.token_id.make_default()
-        self.token_id.is_default = True
+        self.token_id.write({'is_default': True})
         if self.token_id.token_type == 'credit':
             return message_wizard('Card has been successfully saved!')
         elif self.token_id.token_type == 'ach':
             return message_wizard('Bank account has been successfully saved!')
 
     def reject_default(self):
-        self.token_id.is_default = False
+        self.token_id.write({'is_default': False})
         return self.token_id.open_edit()
 
     def accept_default_on_create(self):

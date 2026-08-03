@@ -1,7 +1,8 @@
-from odoo import fields, models,api, _
-from odoo.exceptions import UserError, ValidationError
+from odoo import fields, models, api, _
+from odoo.exceptions import ValidationError
 import logging
 from ..models.ebiz_charge import message_wizard
+from ..tools import _year_selection_from_2000, _month_selection
 
 _logger = logging.getLogger(__name__)
 
@@ -9,25 +10,14 @@ _logger = logging.getLogger(__name__)
 class WizardAddNewCard(models.TransientModel):
     _name = 'wizard.add.new.ach'
     _description = "Wizard Add New Ach"
-    
+
     @api.model
     def year_selection(self):
-        today = fields.Date.today()
-        # year =  # replace 2000 with your a start year
-        year = 2000
-        max_year = today.year+30
-        year_list = []
-        while year != max_year: # replace 2030 with your end year
-            year_list.append((str(year), str(year)))
-            year += 1
-        return year_list
+        return _year_selection_from_2000()
 
     @api.model
     def month_selection(self):
-        m_list = []
-        for i in range(1, 13):
-            m_list.append((str(i), str(i)))
-        return m_list
+        return _month_selection()
     
     ach_account_holder_name = fields.Char("Account Holder Name*")
     ach_account_number = fields.Char("Account Number *")
@@ -48,7 +38,7 @@ class WizardAddNewCard(models.TransientModel):
     @api.constrains('ach_routing')
     def validate_ach_routing(self):
         if self.ach_routing:
-            if not len(self.ach_routing) == 9:
+            if len(self.ach_routing) != 9:
                 raise ValidationError(_('Routing number must be 9 digits.'))
 
     def save_ach(self):
@@ -68,7 +58,7 @@ class WizardAddNewCard(models.TransientModel):
                 else:
                     self.make_default(current_entry)
         except Exception as e:
-            raise ValidationError(str(e))
+            raise ValidationError(e)
         return message_wizard('Bank account has been successfully saved!')
 
     def make_default(self, current_pointer):
@@ -76,9 +66,7 @@ class WizardAddNewCard(models.TransientModel):
         if check:
             self.partner_id.payment_token_ids.filtered(lambda x: x.is_default and x.provider_id.code == 'ebizcharge').update({'is_default': False})
         current_pointer.write({'is_default': True})
-        instance = None
-        if self.partner_id.ebiz_profile_id:
-            instance = self.partner_id.ebiz_profile_id
+        instance = self.partner_id.ebiz_profile_id or None
         ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
         resp = ebiz.client.service.SetDefaultCustomerPaymentMethodProfile(**{
             'securityToken': ebiz._generate_security_json(),
@@ -96,7 +84,7 @@ class WizardAddNewCard(models.TransientModel):
     def create_bank_account(self):
         params = {
             "account_holder_name": self.ach_account_holder_name, 
-            "payment_details": self.ach_account_number,
+            "payment_details": 'XXXXX%s' % self.ach_account_number[-4:],
             "account_number": self.ach_account_number,
             "account_type": self.ach_account_type,
             "routing": self.ach_routing,

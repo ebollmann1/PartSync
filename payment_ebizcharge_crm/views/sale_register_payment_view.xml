@@ -36,8 +36,7 @@
                     <field invisible="1" name="token_type"/>
                     <field invisible="1" name="is_surch_enable"/>
                     <field name="is_pay_link" invisible="1"/>
-                    <div invisible="not is_pay_link"  class="fa fa-info-circle text-nowrap"
-                    style="padding:10px;background-color:#E4D4E0;font-weight:bold;margin:2px;border-radius:4px;" >
+                    <div invisible="not is_pay_link" class="alert alert-info fw-bold" role="alert" style="max-width: fit-content;">
                         This document has an existing payment link. Processing a payment using another method will invalidate the existing link.
                     </div>
                     <notebook>
@@ -46,12 +45,25 @@
                                 <page class="child" name="credit_card" string="Saved Card">
                                     <group>
                                         <group>
-                                            <field context="{'list_view_ref': 'payment_ebizcharge_crm.payment_token_multiple_view_test'}" domain="[('partner_id','=',sub_partner_id),('token_type','=','credit'),('provider_id.code','=','ebizcharge')]" name="card_id" options="{'no_create': True, 'no_quick_create': True, 'no_create_edit':True}"/>
+                                            <field name="enable_surcharge" widget="boolean_toggle" invisible="not is_surch_enable or not merchant_toggle_sur_per_txn"/>
+                                            <field context="{'list_view_ref': 'payment_ebizcharge_crm.payment_token_multiple_view_test', 'hide_actions': True}" domain="[('partner_id','=',sub_partner_id),('token_type','=','credit'),('provider_id.code','=','ebizcharge')]" name="card_id" options="{'no_create': True, 'no_quick_create': True, 'no_create_edit':True}"/>
                                             <field name="security_code" string="Security Code"/>
+                                            <div style="display: inline-block;" invisible="not is_surch_enable or not merchant_toggle_sur_per_txn or not enable_surcharge">
+                                                <span>Surcharge</span>
+                                                <span class="fw-bold">
+                                                    (<field name="surcharge_percentage" class="oe_inline" nolabel="1"/>%)
+                                                </span>
+                                            </div>
+                                            <field name="save_surcharge_percentage_amount" class="oe_inline" nolabel="1" invisible="not is_surch_enable or not merchant_toggle_sur_per_txn or not enable_surcharge or not save_is_eligible"/>
+                                            <span style="display: inline-block;" invisible="not is_surch_enable or not merchant_toggle_sur_per_txn or not enable_surcharge or save_is_eligible">Ineligible</span>
+                                            <field name="save_total_amount" invisible="not is_surch_enable or not merchant_toggle_sur_per_txn or not enable_surcharge"/>
                                         </group>
                                     </group>
                                 </page>
                                 <page class="child" name="new_credit_card" string="New Card">
+                                    <group>
+                                        <field name="enable_surcharge" widget="boolean_toggle" invisible="not is_surch_enable or not merchant_toggle_sur_per_txn"/>
+                                    </group>
                                     <group>
                                         <group>
                                             <field name="card_account_holder_name" required="not card_id and token_type == 'credit'"/>
@@ -64,6 +76,17 @@
                                             <label for="card_card_code" invisible="not required_security_code" string="Security Code *"/>
                                             <label for="card_card_code" invisible="required_security_code" string="Security Code"/>
                                             <field name="card_card_code" nolabel="1" required="not card_id and token_type == 'credit' and required_security_code"/>
+
+                                            <div style="display: inline-block;" invisible="not is_surch_enable or not merchant_toggle_sur_per_txn or not enable_surcharge">
+                                                <span>Surcharge</span>
+                                                <span class="fw-bold">
+                                                    (<field name="surcharge_percentage" class="oe_inline" nolabel="1"/>%)
+                                                </span>
+                                            </div>
+                                            <field name="new_surcharge_percentage_amount" class="oe_inline" nolabel="1" invisible="not is_surch_enable or not merchant_toggle_sur_per_txn or not enable_surcharge or not new_is_eligible"/>
+                                            <span style="display: inline-block;" invisible="not is_surch_enable or not merchant_toggle_sur_per_txn or not enable_surcharge or new_is_eligible">Ineligible</span>
+
+                                            <field name="new_total_amount" invisible="not is_surch_enable or not merchant_toggle_sur_per_txn or not enable_surcharge"/>
                                         </group>
                                         <group>
                                             <field name="card_avs_street" required="not card_id and token_type == 'credit'"/>
@@ -78,7 +101,7 @@
                             <notebook>
                                 <page class="child" name="bank" string="Saved Bank Account">
                                     <group>
-                                        <field context="{'list_view_ref': 'payment_ebizcharge_crm.payment_token_ach_view_tree'}" domain="[('partner_id','=',partner_id),('token_type','=','ach'),('provider_id.code','=','ebizcharge')]" name="ach_id" options="{'no_create': True, 'no_quick_create': True, 'no_create_edit':True}"/>
+                                        <field context="{'list_view_ref': 'payment_ebizcharge_crm.payment_token_ach_view_tree', 'hide_actions': True}" domain="[('partner_id','=',partner_id),('token_type','=','ach'),('provider_id.code','=','ebizcharge')]" name="ach_id" options="{'no_create': True, 'no_quick_create': True, 'no_create_edit':True}"/>
                                     </group>
                                 </page>
                                 <page class="child" name="new_bank" string="New Bank Account">

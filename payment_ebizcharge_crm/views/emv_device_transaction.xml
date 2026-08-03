@@ -40,7 +40,6 @@
             </field>
         </record>
 
-
         <!--        For Invoice Emv Device Transaction-->
         <record id="ebizcharge_emv_device_transaction_form_view" model="ir.ui.view">
             <field name="name">emv.device.transaction</field>
@@ -48,19 +47,11 @@
             <field name="arch" type="xml">
                 <form string="emv_form" create="0" edit="0" delete="0">
                     <header>
-<!--                        <button name="action_create_payment" string="Create Payment" class="oe_highlight"-->
-<!--                                type="object" data-hotkey="q"/>-->
                         <button name="action_post" string="Send Request" class="oe_highlight"
                                 type="object" invisible="state != 'draft'" data-hotkey="q"/>
-                        <button name="action_check"
-                                type="object"
-                                string="Check"
-                                class="oe_highlight"
-                                invisible="state != 'sent'"
+                        <button name="action_check" type="object" string="Check" class="oe_highlight" invisible="state != 'sent'"
                                 data-hotkey="y"/>
-                        <button name="action_cancel"
-                                type="object"
-                                string="Cancel"
+                        <button name="action_cancel" type="object" string="Cancel"
                                 data-hotkey="y"/>
                         <field name="state" widget="statusbar" statusbar_visible="draft,sent,approve,cancel"/>
                     </header>
@@ -130,6 +121,7 @@
                 </list>
             </field>
         </record>
+
         <record id="ebizcharge_emv_device_transaction_action_view" model="ir.actions.act_window">
             <field name="name">EMV</field>
             <field name="type">ir.actions.act_window</field>

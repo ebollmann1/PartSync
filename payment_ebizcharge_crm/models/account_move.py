@@ -1,41 +1,38 @@
 # -*- coding: utf-8 -*-
-
+from markupsafe import Markup
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError,ValidationError
 from datetime import datetime, timedelta
 import logging
 from .ebiz_charge import message_wizard
+from odoo.addons.payment_ebizcharge_crm.tools import _prepare_billing_address, _transaction_lines
 
 _logger = logging.getLogger(__name__)
 
 
 class AccountMoveInh(models.Model):
     _inherit = 'account.move'
-    # _inherit = ['mail.thread']
 
 
     def _get_default_ebiz_auto_sync(self):
-        ebiz_auto_sync_invoice = False
-        if self.partner_id.ebiz_profile_id:
-            ebiz_auto_sync_invoice = self.partner_id.ebiz_profile_id.ebiz_auto_sync_invoice
-        return ebiz_auto_sync_invoice
+        profile = self.partner_id.ebiz_profile_id
+        return profile.ebiz_auto_sync_invoice if profile else False
 
     def _get_default_ebiz_auto_sync_credit_note(self):
-        ebiz_auto_sync_credit_notes = False
-        if self.partner_id.ebiz_profile_id:
-            ebiz_auto_sync_credit_notes = self.partner_id.ebiz_profile_id.ebiz_auto_sync_credit_notes
-        return ebiz_auto_sync_credit_notes
+        profile = self.partner_id.ebiz_profile_id
+        return profile.ebiz_auto_sync_credit_notes if profile else False
 
     def _compute_ebiz_auto_sync(self):
-        self.ebiz_auto_sync = False
+        for rec in self:
+            rec.ebiz_auto_sync = False
 
     def _compute_ebiz_auto_sync_credit_note(self):
-        self.ebiz_auto_sync_credit_note = False
+        for rec in self:
+            rec.ebiz_auto_sync_credit_note = False
 
     def _compute_receipt_status(self):
-        config = self.env['account.move.receipts'].search(
-            [('invoice_id', '=', self.id)])
-        self.receipt_status = True if config else False
+        for rec in self:
+            rec.receipt_status = bool(self.env['account.move.receipts'].search([('invoice_id', '=', rec.id)]))
 
     ebiz_auto_sync = fields.Boolean(compute="_compute_ebiz_auto_sync", default=_get_default_ebiz_auto_sync)
     ebiz_auto_sync_credit_note = fields.Boolean(compute="_compute_ebiz_auto_sync_credit_note",
@@ -86,13 +83,19 @@ class AccountMoveInh(models.Model):
         ('received', 'Received'),
         ('applied', 'Applied'),
     ], string='Pay link Status', default='default', readonly=True, copy=False, index=True)
-
+    inv_enable_sur = fields.Boolean(string='Enable Surcharge')
+    was_inv_sur_enabled = fields.Boolean(string='Was Surcharge Enabled')
 
     def _log_pay_link(self):
         for line in self:
             if line.odoo_payment_link_doc:
-                message_log ='New Payment Link has been generated: '+str(line.odoo_payment_link_doc)
-                line.message_post(body=message_log)
+                line.message_post(
+                    body=Markup(
+                        'New Payment Link has been generated: <a href="%s" target="_blank">%s</a>' % (
+                            line.odoo_payment_link_doc, line.odoo_payment_link_doc)
+                    ),
+                    message_type="comment",
+                )
 
 
     @api.depends('partner_id', 'partner_id.email')
@@ -123,75 +126,143 @@ class AccountMoveInh(models.Model):
         for trans in self:
             trans.done_transaction_ids = trans.transaction_ids.filtered(lambda t: t.state == 'done')
 
-    def action_post(self):
-        #if 'hash_version' in self.env.context or 'validate_analytic' in self.env.context:
-        #    return super().action_post()
-        ret = super(AccountMoveInh, self.with_context({'from_post': True})).action_post()
-        # on posting invoice auto sync invoice
+    def _get_ebiz_client(self):
+        return self.env['ebiz.charge.api'].get_ebiz_charge_obj(
+            instance=self.partner_id.ebiz_profile_id or None
+        )
 
+    def _get_ebiz_instance(self):
         if self.partner_id.ebiz_profile_id:
-            ebiz_auto_sync_invoice = self.partner_id.ebiz_profile_id.ebiz_auto_sync_invoice
-            ebiz_auto_sync_credit_notes = self.partner_id.ebiz_profile_id.ebiz_auto_sync_credit_notes
+            return self.partner_id.ebiz_profile_id
+        return self.env['ebizcharge.instance.config'].search(
+            [('is_valid_credential', '=', True), ('is_default', '=', True), ('is_active', '=', True)],
+            limit=1) or None
 
-            for invoice in self:
-                if invoice.move_type == "out_invoice" and ebiz_auto_sync_invoice:
-                    if self.partner_id.customer_rank > 0:
-                        self.sync_to_ebiz()
-                if invoice.move_type == "out_refund" and ebiz_auto_sync_credit_notes:
-                    if invoice.partner_id.customer_rank > 0:
-                        invoice.sync_to_ebiz()
-                elif (invoice.move_type == "out_refund" or invoice.move_type == "out_invoice") and invoice.ebiz_internal_id and not invoice.done_transaction_ids:
-                    if invoice.partner_id.customer_rank > 0:
-                        invoice.sync_to_ebiz()
-                if  invoice.partner_id.ebiz_profile_id.apply_sale_pay_inv and invoice.authorized_transaction_ids and invoice.authorized_transaction_ids[
-                        0].provider_id.code == 'ebizcharge' and invoice.authorized_transaction_ids[
-                        0].emv_transaction != True:
-                    invoice.payment_action_capture()
-                if not invoice.save_payment_link and self.amount_residual > 0 and invoice.partner_id.ebiz_profile_id.invoice_auto_gpl and invoice.sale_order_count==0 and invoice.payment_state not in ('in_payment','paid'):
-                    invoice.action_generate_pay_ebiz_link()
+    @staticmethod
+    def _get_ebiz_date_range(days_back=365):
+        today = datetime.now()
+        return today - timedelta(days=days_back), today + timedelta(days=1)
+
+    def _get_ebiz_journal_and_method(self, company=None):
+        company = company or self.company_id
+        acquirer = self.env['payment.provider'].search(
+            [('company_id', '=', company.id), ('code', '=', 'ebizcharge'), ('state', '=', 'enabled')])
+        journal = acquirer.journal_id
+        method_line = self.env['account.payment.method.line'].search(
+            [('journal_id', '=', journal.id), ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
+        return journal, method_line
+
+    def _build_payment_memo(self, *extra_parts):
+        if self.partner_id.ebiz_profile_id.payment_memo_setting == 'dn_pon_pm':
+            return " ".join(val for val in [self.name, self.ref, *extra_parts] if val)
+        return self.name
+
+    def js_update_enable_sur(self, **kwargs):
+        if self.exists():
+            self.write({'inv_enable_sur': kwargs.get('enable_sur')})
+            if kwargs.get('res_id'):
+                wizard_id = self.env['account.payment.register'].browse(kwargs.get('res_id')).exists()
+                wizard_id._onchange_enable_surcharge()
+
+    def action_post(self):
+        ret = super(AccountMoveInh, self.with_context({'from_post': True})).action_post()
+        payment_method_codes = self.line_ids.payment_id.payment_method_line_id.mapped('code')
+        if payment_method_codes and 'ebizcharge' not in payment_method_codes:
+            return ret
+        for invoice in self:
+            if not invoice.partner_id.ebiz_profile_id:
+                continue
+            profile = invoice.partner_id.ebiz_profile_id
+            if invoice.partner_id.customer_rank > 0:
+                if invoice.move_type == 'out_invoice' and profile.ebiz_auto_sync_invoice:
+                    invoice.sync_to_ebiz()
+                elif invoice.move_type == 'out_refund' and profile.ebiz_auto_sync_credit_notes:
+                    invoice.sync_to_ebiz()
+                elif invoice.move_type in ('out_invoice', 'out_refund') and invoice.ebiz_internal_id and not invoice.done_transaction_ids:
+                    invoice.sync_to_ebiz()
+            invoice._auto_capture_on_post()
+            invoice._handle_deposit_payment()
+            if not invoice.save_payment_link and invoice.amount_residual > 0 and profile.invoice_auto_gpl and invoice.sale_order_count == 0 and invoice.payment_state not in ('in_payment', 'paid'):
+                invoice.action_generate_pay_ebiz_link()
         return ret
 
-    def _transaction_line(self, line):
-        qty = line.product_uom_qty if hasattr(line, 'product_uom_qty') else line.quantity
-        tax_ids = line.tax_ids if hasattr(line, 'tax_ids') else line.tax_id
-        price_tax = line.price_tax if hasattr(line, 'price_tax') else 0
-        return {
-            'SKU': line.product_id.id,
-            'ProductName': line.product_id.name,
-            'Description': line.name,
-            'UnitPrice': line.price_unit,
-            'Taxable': True if tax_ids else False,
-            'TaxAmount': int(price_tax),
-            'Qty': int(qty),
-        }
+    def _auto_capture_on_post(self):
+        txn = self.authorized_transaction_ids
+        if not txn:
+            return
+        if not all([
+            self.partner_id.ebiz_profile_id.apply_sale_pay_inv,
+            txn[0].provider_id.code == 'ebizcharge',
+            not txn[0].emv_transaction,
+        ]):
+            return
+        if txn[0].child_transaction_ids.filtered(lambda t: t.state == 'done'):
+            return
+        self.payment_action_capture()
 
-    def _transaction_lines(self, lines):
-        item_list = []
-        for line in lines:
-            item_list.append(self._transaction_line(line))
-        return {'TransactionLineItem': item_list}
+    def _handle_deposit_payment(self):
+        txn = self.done_transaction_ids
+        if not txn or txn[0].provider_id.code != 'ebizcharge':
+            return
+        payment = txn.payment_id
+        if not payment:
+            txn._post_process_transactions()
+        if payment.state == 'draft':
+            payment.payment_reference = self.name
+            payment.action_post()
+            payment.action_validate()
+            self.with_context({'payment_id': payment.id}).reconcile()
+        elif payment.state in ('paid', 'in_process'):
+            self.with_context({'payment_id': payment.id}).reconcile()
+
+
+
+    def _prepare_invoice_paylink_form(self, template, payment_method, command, lines):
+        invoice_number = str(self.id) if str(self.name) == '/' else str(self.name)
+        form = {
+            'FormType': 'PayLinkOnly',
+            'FromEmail': 'support@ebizcharge.com',
+            'FromName': 'EBizCharge',
+            'EmailSubject': template.template_subject,
+            'EmailAddress': self.partner_id.email or ' ',
+            'EmailTemplateID': template.template_id,
+            'EmailTemplateName': template.name,
+            'ShowSavedPaymentMethods': True,
+            'CustFullName': self.partner_id.name,
+            'TotalAmount': self.amount_total,
+            'PayByType': payment_method,
+            'AmountDue': self.amount_residual,
+            'ShippingAmount': 0,
+            'ProcessingCommand': command,
+            'CustomerId': self.partner_id.ebiz_customer_id or self.partner_id.id,
+            'ShowViewInvoiceLink': True,
+            'SendEmailToCustomer': False,
+            'TaxAmount': self.amount_tax,
+            'SoftwareId': 'ODOOPayLinkOnly',
+            'InvoiceInternalId': self.ebiz_internal_id,
+            'Description': 'Invoice',
+            'DocumentTypeId': 'Invoice',
+            'OrderId': invoice_number,
+            'PoNum': self.ref or self.name,
+            'InvoiceNumber': " ".join(part for part in [invoice_number, self.ref] if part)
+                if self.partner_id.ebiz_profile_id.payment_memo_setting == 'dn_pon_pm' else invoice_number,
+            'Date': self.invoice_date or self.invoice_date_due or '',
+            'BillingAddress': _prepare_billing_address(self),
+            'LineItems': _transaction_lines(lines),
+        }
+        if self.partner_id.ebiz_customer_id:
+            form['CustomerId'] = self.partner_id.ebiz_customer_id
+        return form
 
     def action_generate_pay_ebiz_link(self):
         template = self.env['email.templates'].search([('template_type_id', '=', 'WebFormEmail'), (
-            'instance_id', '=', self.partner_id.ebiz_profile_id.id) ])
+            'instance_id', '=', self.partner_id.ebiz_profile_id.id) ], limit=1)
         if template:
-            ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=self.partner_id.ebiz_profile_id)
-            fname = self.partner_id.name.split(' ')
-            lname = ''
-            for name in range(1, len(fname)):
-                lname += fname[name]
-            address = ''
-            if self.partner_id.street:
-                address += self.partner_id.street
-            if self.partner_id.street2:
-                address += ' ' + self.partner_id.street2
-
+            ebiz = self._get_ebiz_client()
             lines = self.invoice_line_ids
-            get_merchant_data = False
-            get_allow_credit_card_pay = False
-            if self.partner_id.ebiz_profile_id:
-                get_merchant_data = self.partner_id.ebiz_profile_id.merchant_data
-                get_allow_credit_card_pay = self.partner_id.ebiz_profile_id.allow_credit_card_pay
+            profile = self.partner_id.ebiz_profile_id
+            get_merchant_data = profile.merchant_data if profile else False
+            get_allow_credit_card_pay = profile.allow_credit_card_pay if profile else False
             payment_method = 'CC'
             if get_merchant_data and get_allow_credit_card_pay:
                 payment_method = 'CC,ACH'
@@ -199,61 +270,32 @@ class AccountMoveInh(models.Model):
                 payment_method = 'ACH'
             elif get_allow_credit_card_pay:
                 payment_method = 'CC'
-
-            ePaymentForm = {
-                'FormType': 'PayLinkOnly',
-                'FromEmail': 'support@ebizcharge.com',
-                'FromName': 'EBizCharge',
-                'EmailSubject': template.template_subject,
-                'EmailAddress': self.partner_id.email if self.partner_id.email else ' ',
-                'EmailTemplateID': template.template_id,
-                'EmailTemplateName': template.name,
-                'ShowSavedPaymentMethods': True,
-                'CustFullName': self.partner_id.name,
-                'TotalAmount': self.amount_total,
-                'PayByType': payment_method,
-                'AmountDue': self.amount_residual,
-                'ShippingAmount': 0,
-                'CustomerId': self.partner_id.ebiz_customer_id or self.partner_id.id,
-                'ShowViewInvoiceLink': True,
-                'SendEmailToCustomer': False,
-                'TaxAmount': self.amount_tax,
-                'SoftwareId': 'ODOOPayLinkOnly',
-                'InvoiceInternalId': self.ebiz_internal_id,
-                'Description': 'Invoice' ,
-                'DocumentTypeId': 'Invoice' ,
-                'InvoiceNumber': str(self.id) if str(self.name) == '/' else str(self.name),
-                'BillingAddress': {
-                    "FirstName": fname[0],
-                    "LastName": lname,
-                    "CompanyName": self.partner_id.company_name if self.partner_id.company_name else '',
-                    "Address1": address,
-                    "City": self.partner_id.city if self.partner_id.city else '',
-                    "State": self.partner_id.state_id.code or 'CA',
-                    "ZipCode": self.partner_id.zip or '',
-                    "Country": self.partner_id.country_id.code or 'US',
-                },
-                "LineItems": self._transaction_lines(lines),
-            }
-
-            if self.partner_id.ebiz_customer_id:
-                ePaymentForm['CustomerId'] = self.partner_id.ebiz_customer_id
-
-            ePaymentForm[
-                    'Date'] = self.invoice_date if self.invoice_date else self.invoice_date_due if self.invoice_date_due else ''
+            command = 'Sale'
+            inv_enable_sur = True
+            merchant_account_id = self.partner_id.ebiz_profile_id
+            check_all_for_surcharge = [merchant_account_id, merchant_account_id.is_surcharge_enabled,
+                                       merchant_account_id.merchant_toggle_sur_per_txn]
+            if all(check_all_for_surcharge) and not merchant_account_id.enable_sur_invoice_auto_gpl:
+                command += ';IsSurchargeEnabled=false'
+                inv_enable_sur = False
+            ePaymentForm = self._prepare_invoice_paylink_form(template, payment_method, command, lines)
             form_url = ebiz.client.service.GetEbizWebFormURL(**{
                 'securityToken': ebiz._generate_security_json(),
                 'ePaymentForm': ePaymentForm
             })
+            self.inv_enable_sur = inv_enable_sur
             self.save_payment_link = form_url
             self.is_email_request = False
             self.payment_internal_id = form_url.split('=')[1]
-            # self.ebiz_invoice_status = ' '
+
             if self.save_payment_link:
-                message_log ='New EBizCharge Payment Link has been generated: '+str(form_url)
-                self.message_post(body=message_log)
-
-
+                self.message_post(
+                    body=Markup(
+                        'New EBizCharge Payment Link has been generated: <a href="%s" target="_blank">%s</a>' % (
+                        form_url, form_url)
+                    ),
+                    message_type="comment",
+                )
 
     def show_ebiz_invoice(self):
         """ Show EBizCharge invoice """
@@ -266,21 +308,10 @@ class AccountMoveInh(models.Model):
         }
 
     def sync_to_ebiz(self, time_sample=None):
-        """
-        Kuldeep Implementation
-        Sync single Invoice to EBizCharge
-        """
         update_params = {}
         self.ensure_one()
         sale_id = self.invoice_line_ids[0].sale_line_ids.order_id if self.invoice_line_ids else False
-        instance = None
-        if self.partner_id.ebiz_profile_id:
-            instance = self.partner_id.ebiz_profile_id
-        else:
-            default_instance = self.env['ebizcharge.instance.config'].search(
-                [('is_valid_credential', '=', True), ('is_default', '=', True)], limit=1)
-            if default_instance:
-                instance = default_instance
+        instance = self._get_ebiz_instance()
         web_sale = self.env['ir.module.module'].sudo().search(
             [('name', '=', 'website_sale'), ('state', 'in', ['installed', 'to upgrade', 'to remove'])])
         ebiz_obj = self.env['ebiz.charge.api']
@@ -289,37 +320,19 @@ class AccountMoveInh(models.Model):
                 website_id=sale_id.website_id.id if sale_id and hasattr(sale_id, 'website_id') else None, instance=instance)
         else:
             ebiz = ebiz_obj.get_ebiz_charge_obj(instance=instance)
-        credit_obj = self.env['logs.credit.notes']
-        log_obj = self.env['ebiz.log.invoice']
-        credit_notes_upload = self.env['upload.credit.notes'].search([], limit=1)
-        invoice_upload = self.env['ebiz.upload.invoice'].search([], limit=1)
         if not self.partner_id.ebiz_internal_id:
             self.partner_id.sync_to_ebiz()
         if self.ebiz_internal_id:
             resp = ebiz.update_invoice(self)
-            if resp['Error']=='Not Found ':
+            if resp['Error'] == 'Not Found ':
                 resp_search = False
                 resp = ebiz.sync_invoice(self)
                 if resp['ErrorCode'] == 2:
                     resp_search = self.ebiz_search_invoice()
                 update_params.update({'ebiz_internal_id': resp['InvoiceInternalId'] or resp_search['InvoiceInternalId'],
                                       'sync_response': 'Success' if resp['ErrorCode'] in [0, 2] else resp['Error']})
-                logs_dict = self.get_log_dict(resp)
-                if self.move_type == 'out_refund':
-                    logs_dict['sync_log_id'] = credit_notes_upload.id
-                    credit_obj.create(logs_dict)
-                else:
-                    logs_dict['sync_log_id'] = invoice_upload.id
-                    log_obj.create(logs_dict)
             else:
                 update_params = {'sync_response': resp['Error'] or resp['Status']}
-                logs_dict = self.get_log_dict(resp)
-                if self.move_type == 'out_refund':
-                    logs_dict['sync_log_id'] = credit_notes_upload.id
-                    credit_obj.create(logs_dict)
-                else:
-                    logs_dict['sync_log_id'] = invoice_upload.id
-                    log_obj.create(logs_dict)
         else:
             resp_search = False
             resp = ebiz.sync_invoice(self)
@@ -327,26 +340,23 @@ class AccountMoveInh(models.Model):
                 resp_search = self.ebiz_search_invoice()
             update_params.update({'ebiz_internal_id': resp['InvoiceInternalId'] or resp_search['InvoiceInternalId'],
                                   'sync_response': 'Success' if resp['ErrorCode'] in [0, 2] else resp['Error']})
-            logs_dict = self.get_log_dict(resp)
-            if self.move_type == 'out_refund':
-                logs_dict['sync_log_id'] = credit_notes_upload.id
-                credit_obj.create(logs_dict)
-            else:
-                logs_dict['sync_log_id'] = invoice_upload.id
-                log_obj.create(logs_dict)
-
-        update_params.update({
-            'last_sync_date': fields.Datetime.now()
-        })
+        self._create_sync_log(resp)
+        update_params['last_sync_date'] = fields.Datetime.now()
         self.write(update_params)
         return resp
+
+    def _create_sync_log(self, resp):
+        logs_dict = self.get_log_dict(resp)
+        if self.move_type == 'out_refund':
+            self.env['logs.credit.notes'].create(logs_dict)
+        else:
+            self.env['ebiz.log.invoice'].create(logs_dict)
 
 
     def get_log_dict(self, resp):
         return {
             'invoice': self.id,
             'partner_id': self.partner_id.id,
-            'customer_id': self.partner_id.id,
             'sync_status': 'Success' if resp['ErrorCode'] in [0, 2] else resp['Error'],
             'last_sync_date': datetime.now(),
             'currency_id': self.env.user.currency_id.id,
@@ -359,24 +369,21 @@ class AccountMoveInh(models.Model):
         }
 
     def process_invoices(self, send_receipt):
-        """
-            Niaz Implementation:
-            Email the receipt to customer, if email receipts templates not there in odoo, it will fetch.
-            return: wizard to select the receipt template
-        """
         try:
             message_lines = []
             for record in self:
                 record.sync_to_ebiz()
                 record.ebiz_batch_procssing_reg(record.default_payment_method_id, send_receipt)
-                message_lines.append([0, 0, {'customer_id': record.customer_id,
-                                             "customer_name": record.partner_id.name,
-                                             'invoice_no': record.name,
-                                             'status': record.transaction_ids.state}])
+                message_lines.append(fields.Command.create({
+                    'customer_id': record.customer_id,
+                    'customer_name': record.partner_id.name,
+                    'invoice_no': record.name,
+                    'status': record.transaction_ids.state,
+                }))
             self.create_log_lines()
             wizard = self.env['batch.process.message'].create({'name': "Batch Process", 'lines_ids': message_lines})
             action = self.env.ref('payment_ebizcharge_crm.wizard_batch_process_message_action').read()[0]
-            action['context'] = self._context
+            action['context'] = self.env.context
             action['res_id'] = wizard.id
             return action
 
@@ -387,6 +394,8 @@ class AccountMoveInh(models.Model):
     def create_log_lines(self):
         list_of_invoices = []
         for invoice in self:
+            if not invoice.transaction_ids:
+                continue
             partner = invoice.partner_id
             transaction_id = invoice.transaction_ids[0]
             dict1 = {
@@ -421,11 +430,7 @@ class AccountMoveInh(models.Model):
             return False
 
     def ebiz_search_invoice(self):
-        instance = None
-        if self.partner_id.ebiz_profile_id:
-            instance = self.partner_id.ebiz_profile_id
-
-        ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
+        ebiz = self._get_ebiz_client()
         resp = ebiz.client.service.SearchInvoices(**{
             'securityTokenCustomer': ebiz._generate_security_json(),
             'customerId': self.partner_id.id,
@@ -442,16 +447,11 @@ class AccountMoveInh(models.Model):
         for line in self:
             if line.emv_transaction_id:
                 line.emv_transaction_id.action_check(trans=line.emv_transaction_id.id)
-        ret = super(AccountMoveInh, self).action_register_payment()
-        ebiz_obj = self.env['ebiz.charge.api']
+        ret = super().action_register_payment()
         check = any(inv.save_payment_link for inv in self)
         for line in self:
             if line.ebiz_internal_id:
-                instance = None
-                if line.partner_id.ebiz_profile_id:
-                    instance = line.partner_id.ebiz_profile_id
-
-                ebiz = ebiz_obj.get_ebiz_charge_obj(instance=instance)
+                ebiz = line._get_ebiz_client()
                 from_date = datetime.strftime((line.create_date - timedelta(days=1)), '%Y-%m-%dT%H:%M:%S')
                 to_date = datetime.strftime((datetime.now() + timedelta(days=1)), '%Y-%m-%dT%H:%M:%S')
                 params = {
@@ -474,27 +474,16 @@ class AccountMoveInh(models.Model):
                         })
                     inv_type = 'invoice' if line.move_type == 'out_invoice' else 'credit note'
                     return message_wizard(f'This {inv_type} has already been processed on the EBizCharge portal!')
-        emv_device_id = 0
-        if line.partner_id.ebiz_profile_id:
-            if line.partner_id.ebiz_profile_id and line.partner_id.ebiz_profile_id.is_emv_enabled:
-                line.partner_id.ebiz_profile_id.action_get_devices()
-        for line in self:
-            emv_devices = self.env['ebizcharge.emv.device'].search([('is_default_emv', '=', True),('merchant_id','=',line.partner_id.ebiz_profile_id.id)], limit=1)
-            if emv_devices:
-                emv_device_id = emv_devices
+        if line.partner_id.ebiz_profile_id and line.partner_id.ebiz_profile_id.is_emv_enabled:
+            line.partner_id.ebiz_profile_id.action_get_devices()
         ret['context'].update({
-           # 'default_emv_device_id': emv_device_id.id if emv_device_id else False,
             'default_is_pay_link': check
         })
         return ret
 
     def action_reverse(self):
         if not self.env.context.get('bypass_credit_note_restriction'):
-            total_credit_amount = 0
-
-            for notes in self.credit_note_ids:
-                total_credit_amount += notes.amount_total
-
+            total_credit_amount = sum(self.credit_note_ids.mapped('amount_total'))
             if self.amount_total <= total_credit_amount:
                 params = {
                     "invoice_id": self.id,
@@ -506,34 +495,22 @@ class AccountMoveInh(models.Model):
                 action['res_id'] = wiz.id
                 return action
 
-        action = super(AccountMoveInh, self).action_reverse()
-        if self._context.get('active_model') == 'account.move':
-            action['context'] = dict(self._context)
+        action = super().action_reverse()
+        if self.env.context.get('active_model') == 'account.move':
+            action['context'] = dict(self.env.context)
         return action
 
     def run_ebiz_transaction(self, payment_token_id, command, card=None, token_ebiz=None):
-        """
-        Kuldeep implemented
-        run ebiz transaction on the Invoice
-        """
         self.ensure_one()
         if not self.partner_id.ebiz_internal_id and payment_token_id and payment_token_id.partner_id.id==self.partner_id.id:
             self.partner_id.sync_to_ebiz()
-        #if not self.commercial_partner_id.payment_token_ids:
-        #    raise UserError("Please enter payment method profile on the customer.")
-        instance = None
-        if payment_token_id:
-            instance = payment_token_id.partner_id.ebiz_profile_id
-        elif self.partner_id.ebiz_profile_id:
-            instance = self.partner_id.ebiz_profile_id
-
-        elif self.env.user.partner_id.ebiz_profile_id:
-            instance = self.env.user.partner_id.ebiz_profile_id
-        else:
-            default_instance = self.env['ebizcharge.instance.config'].search(
+        instance = (
+            (payment_token_id and payment_token_id.partner_id.ebiz_profile_id)
+            or self.partner_id.ebiz_profile_id
+            or self.env.user.partner_id.ebiz_profile_id
+            or self.env['ebizcharge.instance.config'].search(
                 [('is_valid_credential', '=', True), ('is_default', '=', True)], limit=1)
-            if default_instance:
-                instance = default_instance
+        )
 
         ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
         if self.env.context.get('run_transaction'):
@@ -544,31 +521,37 @@ class AccountMoveInh(models.Model):
 
 
     def payment_action_capture(self):
-        if self.authorized_transaction_ids and self.authorized_transaction_ids[0].provider_id.code == 'ebizcharge' and self.authorized_transaction_ids[0].emv_transaction!=True:
-            ret = super(AccountMoveInh,
-                        self.with_context({'from_invoice': True, 'invoice_id': self})).payment_action_capture()
-            return ret
-        elif self.authorized_transaction_ids[0].emv_transaction==True:
-            ret = super(AccountMoveInh,
-                        self.with_context({'from_invoice': True,'invoice_id': self, 'emv_trans': self.authorized_transaction_ids})).payment_action_capture()
-            return ret
-        ret = super(AccountMoveInh, self).payment_action_capture()
+        if not (self.authorized_transaction_ids
+                and self.authorized_transaction_ids[0].provider_id.code == 'ebizcharge'):
+            return super().payment_action_capture()
+
+        auth_tx = self.authorized_transaction_ids[0]
+        ctx = {'from_invoice': True, 'invoice_id': self}
+        if auth_tx.emv_transaction:
+            ctx['emv_trans'] = self.authorized_transaction_ids
+
+        ret = super(AccountMoveInh, self.with_context(ctx)).payment_action_capture()
+
+        child_done_txs = auth_tx.child_transaction_ids.filtered(
+            lambda t: t.state == 'done' and not t.payment_id
+        )
+        (child_done_txs or auth_tx).with_context({'invoice_id': self})._post_process_transactions()
+
+        if self.payment_state == 'not_paid':
+            self.reconcile()
         return ret
-        
+
 
     def payment_action_void(self):
-        ret = super(AccountMoveInh, self).payment_action_void()
+        ret = super().payment_action_void()
         receipt_check = self.env['account.move.receipts'].search([('invoice_id', '=', self.id)])
         if receipt_check:
             receipt_check[-1].unlink()
         return ret
 
-    def ebiz_create_payment_line(self, amount):
-        acquirer = self.env['payment.provider'].search(
-            [('company_id', '=', self.company_id.id), ('code', '=', 'ebizcharge')])
-        journal_id = acquirer.journal_id
-        ebiz_method = self.env['account.payment.method.line'].search(
-            [('journal_id', '=', journal_id.id), ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
+    def ebiz_create_payment_line(self, amount, payment_method=False):
+        journal_id, ebiz_method = self._get_ebiz_journal_and_method()
+        memo = self._build_payment_memo(payment_method)
         payment = self.env['account.payment'] \
             .sudo().with_context(active_ids=self.ids, active_model='account.move', active_id=self.id) \
             .create({'journal_id': journal_id.id,
@@ -579,17 +562,16 @@ class AccountMoveInh(models.Model):
                      'partner_id': self.partner_id.id,
                      'transaction_ref': self.name or None,
                      'payment_reference': self.name or None,
+                     'memo': memo,
                      'payment_type': 'outbound' if self.move_type == 'out_refund' else 'inbound'
                      })
         payment.with_context({'do_not_run_transaction': True}).action_post()
-        self.reconcile()
+        self.with_context({'payment_id': payment.id}).reconcile()
         self.write({'ebiz_invoice_status': 'partially_received' if self.amount_residual else 'received',
                     'is_payment_processed': True})
         if self.save_payment_link:
-            self.request_amount = self.amount_residual
-            self.last_request_amount =  0
-            self.ebiz_payment_link = 'applied'
-            self.save_payment_link = False
+            self.write({'request_amount': self.amount_residual, 'last_request_amount': 0,
+                        'ebiz_payment_link': 'applied', 'save_payment_link': False})
             instance = self.partner_id.ebiz_profile_id
             if self.payment_internal_id and instance:
                 ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
@@ -600,15 +582,11 @@ class AccountMoveInh(models.Model):
         return super(AccountMoveInh, self).payment_action_capture()
 
     def ebiz_batch_procssing_reg(self, default_card_id, ebiz_send_receipt):
-        provider_obj = self.env['payment.provider']
-        acquirer = provider_obj.search([('company_id', '=', self.company_id.id), ('code', '=', 'ebizcharge')])
-        journal_id = acquirer.journal_id
-        company_acquirer = provider_obj.search([('company_id', '=', self.company_id.id), ('code', '=', 'ebizcharge')])
-        if not company_acquirer:
+        journal_id, ebiz_method = self._get_ebiz_journal_and_method()
+        if not journal_id:
             raise UserError('There is no Acquirer link to this ' + self.company_id.name + '.')
         token = self.env['payment.token'].browse(default_card_id)
-        ebiz_method = self.env['account.payment.method.line'].search(
-            [('journal_id', '=', journal_id.id), ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
+        memo = self._build_payment_memo(token.get_encrypted_name())
         payment = self.env['account.payment'] \
             .sudo().with_context(active_ids=self.ids, active_model='account.move', active_id=self.id) \
             .create({'journal_id': journal_id.id,
@@ -624,7 +602,8 @@ class AccountMoveInh(models.Model):
                      'payment_method_line_id': ebiz_method.id,
                      'partner_id': self.partner_id.id,
                      'payment_reference': self.name or None,
-                     'payment_type': 'inbound'
+                     'payment_type': 'inbound',
+                     'memo': memo
                      })
         payment.sudo().with_context({'payment_data': {
             'token_type': token.token_type,
@@ -634,19 +613,15 @@ class AccountMoveInh(models.Model):
             'security_code': False,
             'ebiz_send_receipt': ebiz_send_receipt,
             'ebiz_receipt_emails': self.partner_id.email,
-        }, 'batch_processing': True}).action_post()
+        }, 'batch_processing': True, 'active_ids': self.ids, 'active_model': 'account.move', 'active_id': self.id}).action_post()
         if payment.state == 'posted':
-            self.reconcile()
+            self.with_context({'payment_id': payment.id}).reconcile()
             self.write({'ebiz_invoice_status': 'partially_received' if self.amount_residual else 'received',
                         'is_payment_processed': True})
         return super(AccountMoveInh, self).payment_action_capture()
 
     def process_refund_payment(self):
-        acquirer = self.env['payment.provider'].search(
-            [('company_id', '=', self.company_id.id), ('code', '=', 'ebizcharge')])
-        journal_id = acquirer.journal_id
-        ebiz_method = self.env['account.payment.method.line'].search(
-            [('journal_id', '=', journal_id.id), ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
+        journal_id, ebiz_method = self._get_ebiz_journal_and_method()
 
         payment_method_id = self.env['account.payment.method'].search([('code', '=', 'electronic')]).id
         payment = self.env['account.payment'] \
@@ -654,78 +629,51 @@ class AccountMoveInh(models.Model):
             .create({'journal_id': journal_id.id, 'payment_method_id': ebiz_method.payment_method_id.id, 'payment_method_line_id':ebiz_method.id})
         payment.with_context({'pass_validation': True}).action_post()
 
-    def ebiz_sync_multiple_invoices(self):
+    def _build_sync_result_lines(self, invoice_records):
         resp_lines = []
         success = 0
         failed = 0
-        total = len(self)
-
-        for inv in self:
-            resp_line = {
-                'customer_name': inv.partner_id.name,
-                'customer_id': inv.partner_id.id,
-                'invoice_number': inv.name
-            }
-            try:
-                resp = inv.sync_to_ebiz()
-                resp_line['record_message'] = resp['Error'] or resp['Status']
-
-            except Exception as e:
-                _logger.exception(e)
-                resp_line['record_message'] = str(e)
-
-            if resp_line['record_message'] == 'Success' or resp_line['record_message'] == 'Record already exists':
-                success += 1
-            else:
-                failed += 1
-            resp_lines.append([0, 0, resp_line])
-
-        wizard = self.env['wizard.multi.sync.message'].create({'name': 'invoices', 'invoice_lines_ids': resp_lines,
-                                                               'success_count': success, 'failed_count': failed,
-                                                               'total': total})
-        action = self.env.ref('payment_ebizcharge_crm.wizard_multi_sync_message_action').read()[0]
-        action['context'] = self._context
-        action['res_id'] = wizard.id
-        return action
-
-    def sync_multi_customers_from_upload_invoices(self, list):
-        invoice_records = self.env['account.move'].browse(list).exists()
-        resp_lines = []
-        success = 0
-        failed = 0
-        total = len(invoice_records)
         for inv in invoice_records:
             resp_line = {
                 'customer_name': inv.partner_id.name,
                 'customer_id': inv.partner_id.id,
-                'invoice_number': inv.name
+                'invoice_number': inv.name,
             }
             try:
                 resp = inv.sync_to_ebiz()
                 resp_line['record_message'] = resp['Error'] or resp['Status']
-
             except Exception as e:
                 _logger.exception(e)
                 resp_line['record_message'] = str(e)
-
-            if resp_line['record_message'] == 'Success' or resp_line['record_message'] == 'Record already exists':
+            if resp_line['record_message'] in ('Success', 'Record already exists'):
                 success += 1
             else:
                 failed += 1
-            resp_lines.append([0, 0, resp_line])
+            resp_lines.append(fields.Command.create(resp_line))
+        return resp_lines, success, failed, len(invoice_records)
 
-        if self.env.context.get('credit') == 'credit_notes':
-            wizard = self.env['wizard.multi.sync.message'].create(
-                {'name': 'credit_notes', 'invoice_lines_ids': resp_lines,
-                 'success_count': success, 'failed_count': failed, 'total': total})
-        else:
-            wizard = self.env['wizard.multi.sync.message'].create({'name': 'invoices', 'invoice_lines_ids': resp_lines,
-                                                                   'success_count': success, 'failed_count': failed,
-                                                                   'total': total})
+    def _open_sync_result_wizard(self, resp_lines, success, failed, total, name='invoices'):
+        wizard = self.env['wizard.multi.sync.message'].create({
+            'name': name,
+            'invoice_lines_ids': resp_lines,
+            'success_count': success,
+            'failed_count': failed,
+            'total': total,
+        })
         action = self.env.ref('payment_ebizcharge_crm.wizard_multi_sync_message_action').read()[0]
-        action['context'] = self._context
+        action['context'] = self.env.context
         action['res_id'] = wizard.id
         return action
+
+    def ebiz_sync_multiple_invoices(self):
+        resp_lines, success, failed, total = self._build_sync_result_lines(self)
+        return self._open_sync_result_wizard(resp_lines, success, failed, total)
+
+    def sync_multi_customers_from_upload_invoices(self, invoice_ids):
+        invoice_records = self.env['account.move'].browse(invoice_ids).exists()
+        resp_lines, success, failed, total = self._build_sync_result_lines(invoice_records)
+        name = 'credit_notes' if self.env.context.get('credit') == 'credit_notes' else 'invoices'
+        return self._open_sync_result_wizard(resp_lines, success, failed, total, name)
 
     def write(self, values):
         ret = super(AccountMoveInh, self).write(values)
@@ -736,11 +684,6 @@ class AccountMoveInh(models.Model):
         return ret
 
     def email_invoice_ebiz(self):
-        """
-        Niaz Implementation:
-        Call the wizard, use to send email invoice to customer, fetch the email templates incase not present before
-        return: Wizard
-        """
         try:
 
             if self.ebiz_invoice_status == 'pending':
@@ -752,25 +695,10 @@ class AccountMoveInh(models.Model):
             if not self.ebiz_internal_id:
                 self.sync_to_ebiz()
 
-            self.env.cr.commit()
-
-
-
 
             if self.save_payment_link:
-                instance = None
-                if self.partner_id.ebiz_profile_id:
-                    instance = self.partner_id.ebiz_profile_id
-                else:
-                    default_instance = self.env['ebizcharge.instance.config'].search(
-                        [('is_valid_credential', '=', True), ('is_default', '=', True), ('is_active', '=', True)],
-                        limit=1)
-                    if default_instance:
-                        instance = default_instance
-                ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
-                today = datetime.now()
-                end = today + timedelta(days=1)
-                start = today + timedelta(days=-365)
+                ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=self._get_ebiz_instance())
+                start, end = self._get_ebiz_date_range()
 
                 received_payments = ebiz.client.service.SearchEbizWebFormReceivedPayments(**{
                     'securityToken': ebiz._generate_security_json(),
@@ -799,10 +727,10 @@ class AccountMoveInh(models.Model):
                             else:
                                 continue
                         except Exception:
-                            pass
+                            _logger.exception("Failed to build received-payment wizard for invoice %s", self.id)
                     else:
                         text = f"This document has an existing payment link. Proceeding will invalidate the existing link. Do you want to continue?"
-                        wizard = self.env['wizard.receive.email.payment.link'].create({"record_id": self.id,
+                        wizard = self.env['wizard.receive.email.payment.link'].create({
                                                                                        "odoo_invoice": self.id,
                                                                                        "text": text})
                         action = self.env.ref('payment_ebizcharge_crm.wizard_received_email_pay_payment_link').read()[0]
@@ -814,7 +742,7 @@ class AccountMoveInh(models.Model):
                         return action
             if self.odoo_payment_link:
                 text = f"This document has a pending payment link. Proceeding may increase the risk of double payments. Do you want to continue?"
-                wizard = self.env['wizard.receive.email.payment.link'].create({"record_id": self.id,
+                wizard = self.env['wizard.receive.email.payment.link'].create({
                                                                                "odoo_invoice": self.id,
                                                                                "text": text})
                 action = self.env.ref('payment_ebizcharge_crm.wizard_received_email_pay_payment_link').read()[0]
@@ -832,8 +760,8 @@ class AccountMoveInh(models.Model):
                     'view_mode': 'form',
                     'view_type': 'form',
                     'context': {
-                        'default_contacts_to': [[6, 0, [self.partner_id.id]]],
-                        'default_partner_ids': [[6, 0, [self.partner_id.id]]],
+                        'default_contacts_to': [fields.Command.set([self.partner_id.id])],
+                        'default_partner_ids': [fields.Command.set([self.partner_id.id])],
                         'default_record_id': self.id,
                         'default_ebiz_profile_id': self.partner_id.ebiz_profile_id.id,
                         'default_currency_id': self.currency_id.id,
@@ -848,16 +776,8 @@ class AccountMoveInh(models.Model):
             raise ValidationError(e)
 
     def resend_email_invoice_ebiz(self):
-        """
-            Niaz Implementation:
-            Use to resend the email invoice
-        """
         try:
-            instance = None
-            if self.partner_id.ebiz_profile_id:
-                instance = self.partner_id.ebiz_profile_id
-
-            ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
+            ebiz = self._get_ebiz_client()
             form_url = ebiz.client.service.ResendEbizWebFormEmail(**{
                 'securityToken': ebiz._generate_security_json(),
                 'paymentInternalId': self.payment_internal_id,
@@ -910,15 +830,10 @@ class AccountMoveInh(models.Model):
                                 })
 
                                 if resp and resp['Status'] == 'Success':
-                                    payment_acq = self.env['payment.provider'].search(
-                                        [('company_id', '=',
-                                          odooCustomer.company_id.id if odooCustomer.company_id else self.env.company.id),
-                                         ('code', '=', 'ebizcharge')])
-                                    ebiz_method = self.env['account.payment.method.line'].search(
-                                        [('journal_id', '=', payment_acq.journal_id.id),
-                                         ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
+                                    journal, ebiz_method = self._get_ebiz_journal_and_method(
+                                        company=odooCustomer.company_id or self.env.company)
                                     payment = self.env['account.payment'].sudo().create({
-                                        'journal_id': payment_acq.journal_id.id,
+                                        'journal_id': journal.id,
                                         'payment_method_id': ebiz_method.payment_method_id.id,
                                         'payment_method_line_id':ebiz_method.id,
                                         'partner_id': odooCustomer.id,
@@ -932,217 +847,199 @@ class AccountMoveInh(models.Model):
                                     payment.action_post()
 
     def get_pending_invoices(self, instance=None):
-        """
-            Niaz Implementation:
-            Get received payments paid via email invoice, change status of email to received.
-        """
+        """Get received payments paid via email invoice and change their status."""
         try:
-            filters_list = []
-            if not instance:
-                filters_list.append(
-                    {'FieldName': 'InvoiceNumber', 'ComparisonOperator': 'eq', 'FieldValue': self.name})
-                instance = None
-                if self.partner_id.ebiz_profile_id:
-                    instance = self.partner_id.ebiz_profile_id
-
+            instance = instance or self.partner_id.ebiz_profile_id
             ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
-            today = datetime.now()
-            end = today + timedelta(days=1)
-            start = today + timedelta(days=-365)
+            start, end = self._get_ebiz_date_range()
+
             filters_list = []
             if 'for_pay_link' in self.env.context and self.ebiz_invoice_status != 'pending':
-                filters_list.append(
-                    {'FieldName': 'FormType', 'ComparisonOperator': 'eq',
-                     'FieldValue': 'PayLinkOnly'})
-            received_payments = ebiz.client.service.SearchEbizWebFormReceivedPayments(**{
-                'securityToken': ebiz._generate_security_json(),
-                'fromPaymentRequestDateTime': str(start.date()),
-                'toPaymentRequestDateTime': str(end.date()),
-                'start': 0,
-                'limit': 10000,
-                "filters": {'SearchFilter': filters_list},
-            })
-            if received_payments:
-                for invoice in received_payments:
-                    try:
-                        odoo_invoice = self.env['account.move'].search(
-                            [('payment_internal_id', '=', invoice['PaymentInternalId']), '|',
-                             ('ebiz_invoice_status', 'in', ['pending']), ('ebiz_payment_link', 'in', ['received'])])
-                        if odoo_invoice:
-                            if odoo_invoice.state != 'posted':
-                                odoo_invoice.action_post()
-                            if odoo_invoice['amount_residual'] - float(invoice['PaidAmount']) > 0:
-                                odoo_invoice.write({
-                                    'ebiz_invoice_status': 'partially_received',
-                                    'receipt_ref_num': invoice['RefNum'],
-                                    'is_payment_processed': True
-                                })
-                            else:
-                                odoo_invoice.write({
-                                    'ebiz_invoice_status': 'received',
-                                    'receipt_ref_num': invoice['RefNum'],
-                                    'is_payment_processed': True
-                                })
+                filters_list.append({'FieldName': 'FormType', 'ComparisonOperator': 'eq', 'FieldValue': 'PayLinkOnly'})
 
-                            self.env['account.move.receipts'].create({
-                                'invoice_id': odoo_invoice.id,
-                                'name': self.env.user.currency_id.symbol + invoice['PaidAmount'][:-2] + ' Paid On ' +
-                                        invoice['PaymentRequestDateTime'].split('T')[0],
-                                'ref_nums': invoice['RefNum'],
-                                'model': str(self._inherit),
-                            })
-                            journal_id = False
-                            payment_acq = self.env['payment.provider'].search(
-                                [('company_id', '=', odoo_invoice.company_id.id), ('code', '=', 'ebizcharge')])
-                            if payment_acq and payment_acq.state == 'enabled':
-                                journal_id = payment_acq.journal_id
+            self._apply_web_form_payments(ebiz, start, end, filters_list)
 
-                            if journal_id:
-                                ebiz_method = self.env['account.payment.method.line'].search(
-                                    [('journal_id', '=', journal_id.id), ('payment_method_id.code', '=', 'ebizcharge')],
-                                    limit=1)
-                                payment = self.env['account.payment'] \
-                                    .sudo().with_context(active_ids=odoo_invoice.ids, active_model='account.move',
-                                                  active_id=odoo_invoice.id) \
-                                    .create(
-                                    {'journal_id': journal_id.id,
-                                     'payment_method_id': ebiz_method.payment_method_id.id,
-                                     'payment_method_line_id': ebiz_method.id,
-                                     'amount': float(invoice['PaidAmount']),
-                                     'token_type': None,
-                                     'partner_id': odoo_invoice.partner_id.id,
-                                     'transaction_ref': odoo_invoice.name or None,
-                                     'payment_type': 'inbound'
-                                     })
-                                payment.with_context({'pass_validation': True}).action_post()
-                                odoo_invoice.reconcile()
-                                odoo_invoice.sync_to_ebiz()
-                                odoo_invoice.save_payment_link = False
-                                odoo_invoice.ebiz_payment_link = 'applied'
-                                odoo_invoice.request_amount = 0
-                                odoo_invoice.last_request_amount = 0
-                                if odoo_invoice['amount_residual'] <= 0:
-                                    res = super(AccountMoveInh, odoo_invoice).payment_action_capture()
-                                    odoo_invoice.mark_as_applied()
-                                else:
-                                    ebiz.client.service.MarkEbizWebFormPaymentAsApplied(**{
-                                        'securityToken': ebiz._generate_security_json(),
-                                        'paymentInternalId': odoo_invoice.payment_internal_id,
-                                    })
-                    except Exception:
-                        continue
             if 'for_pay_link' not in self.env.context:
-                quick_payments = ebiz.client.service.GetPayments(**{
-                    'securityToken': ebiz._generate_security_json(),
-                    'fromDateTime': str(start.date()),
-                    'toDateTime': str(end.date()),
-                    'start': 0,
-                    'limit': 10000,
-                })
-
-                if quick_payments:
-                    for pay in quick_payments:
-                        try:
-                            if pay['InvoiceInternalId']:
-                                is_odoo_invoice = self.env['account.move'].search(
-                                    [('ebiz_internal_id', '=', pay['InvoiceInternalId'])])
-                                is_credit = self.env['account.payment'].search([('name', '=', pay['InvoiceNumber'])])
-                                if is_odoo_invoice:
-                                    is_odoo_invoice.ebiz_create_payment_line(pay['PaidAmount'])
-                                    resp = ebiz.client.service.MarkPaymentAsApplied(**{
-                                        'securityToken': ebiz._generate_security_json(),
-                                        'paymentInternalId': pay['PaymentInternalId'],
-                                        'invoiceNumber': pay['InvoiceNumber'],
-                                    })
-                                    self.env['account.move.receipts'].create({
-                                        'invoice_id': is_odoo_invoice.id,
-                                        'name': self.env.user.currency_id.symbol + pay['PaidAmount'][:-2] + ' Paid On ' +
-                                                pay['DatePaid'].split('T')[0],
-                                        'ref_nums': pay['RefNum'],
-                                        'model': str(self._inherit),
-                                    })
-                                if is_credit:
-                                    resp = ebiz.client.service.MarkPaymentAsApplied(**{
-                                        'securityToken': ebiz._generate_security_json(),
-                                        'paymentInternalId': pay['PaymentInternalId'],
-                                        'invoiceNumber': pay['InvoiceNumber'],
-                                    })
-                                    is_credit.action_draft()
-                                    is_credit.cancel()
-                            else:
-                                partner = self.env['res.partner'].search([('id', '=', pay['CustomerId'])])
-                                if partner and pay['TypeId'] in ['QuickPay']:
-                                    payment_acq = self.env['payment.provider'].search(
-                                        [('company_id', '=',
-                                          partner.company_id.id if partner.company_id else self.env.company.id),
-                                         ('code', '=', 'ebizcharge')])
-                                    if payment_acq:
-                                        ebiz_method = self.env['account.payment.method.line'].search(
-                                            [('journal_id', '=', payment_acq.journal_id.id),
-                                             ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
-                                        resp = ebiz.client.service.MarkPaymentAsApplied(**{
-                                            'securityToken': ebiz._generate_security_json(),
-                                            'paymentInternalId': pay['PaymentInternalId'],
-                                            'invoiceNumber': pay['InvoiceNumber'] if pay['InvoiceNumber'] else '',
-                                        })
-                                        payment = self.env['account.payment'].sudo().create({
-                                            'journal_id': payment_acq.journal_id.id,
-                                            'payment_method_id': ebiz_method.payment_method_id.id,
-                                            'payment_method_line_id':ebiz_method.id,
-                                            'partner_id': partner.id,
-                                            'payment_reference': pay['RefNum'],
-                                            'amount': pay['PaidAmount'],
-                                            'partner_type': 'customer',
-                                            'payment_type': 'inbound',
-                                            'transaction_ref': pay['InvoiceNumber'] if pay['InvoiceNumber'] else '',
-                                        })
-                                        payment.action_post()
-
-                        except Exception:
-                            continue
-
-                recurring_payments = ebiz.client.service.SearchRecurringPayments(**{
-                    'securityToken': ebiz._generate_security_json(),
-                    "fromDateTime": str(start.date()),
-                    "toDateTime": str(end.date()),
-                    "limit": 1000,
-                    "start": 0,
-                })
-                if recurring_payments:
-                    for r_pay in recurring_payments:
-                        try:
-                            partner = self.env['res.partner'].search([('id', '=', r_pay['CustomerId'])])
-                            if partner:
-                                payment_acq = self.env['payment.provider'].search(
-                                    [('company_id', '=',
-                                      partner.company_id.id if partner.company_id else self.env.company.id),
-                                     ('code', '=', 'ebizcharge')])
-                                if payment_acq:
-                                    ebiz_method = self.env['account.payment.method.line'].search(
-                                        [('journal_id', '=', payment_acq.journal_id.id),
-                                         ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
-                                    resp = ebiz.client.service.MarkRecurringPaymentAsApplied(**{
-                                        'securityToken': ebiz._generate_security_json(),
-                                        'paymentInternalId': r_pay['PaymentInternalId'],
-                                        'invoiceNumber': r_pay['InvoiceNumber'] if r_pay['InvoiceNumber'] else '',
-                                    })
-                                    payment = self.env['account.payment'].sudo().create({
-                                        'journal_id': payment_acq.journal_id.id,
-                                        'payment_method_id': ebiz_method.payment_method_id.id,
-                                        'payment_method_line_id':ebiz_method.id,
-                                        'partner_id': partner.id,
-                                        'payment_reference': r_pay['RefNum'],
-                                        'amount': r_pay['PaidAmount'],
-                                        'partner_type': 'customer',
-                                        'payment_type': 'inbound',
-                                        'transaction_ref': r_pay['InvoiceNumber'] if r_pay['InvoiceNumber'] else '',
-                                    })
-                                    payment.action_post()
-                        except Exception:
-                            continue
+                self._apply_quick_payments(ebiz, start, end)
+                self._apply_recurring_payments(ebiz, start, end)
 
         except Exception as e:
             raise UserError(e)
+
+    def _apply_web_form_payments(self, ebiz, start, end, filters_list):
+        received_payments = ebiz.client.service.SearchEbizWebFormReceivedPayments(**{
+            'securityToken': ebiz._generate_security_json(),
+            'fromPaymentRequestDateTime': str(start.date()),
+            'toPaymentRequestDateTime': str(end.date()),
+            'start': 0,
+            'limit': 10000,
+            "filters": {'SearchFilter': filters_list},
+        })
+        if not received_payments:
+            return
+        for invoice in received_payments:
+            try:
+                odoo_invoice = self.env['account.move'].search([
+                    ('payment_internal_id', '=', invoice['PaymentInternalId']),
+                    '|',
+                    ('ebiz_invoice_status', 'in', ['pending']),
+                    ('ebiz_payment_link', 'in', ['received']),
+                ])
+                if not odoo_invoice:
+                    continue
+                if odoo_invoice.state != 'posted':
+                    odoo_invoice.action_post()
+                status = 'partially_received' if odoo_invoice['amount_residual'] - float(invoice['PaidAmount']) > 0 else 'received'
+                odoo_invoice.write({
+                    'ebiz_invoice_status': status,
+                    'receipt_ref_num': invoice['RefNum'],
+                    'is_payment_processed': True,
+                })
+                self.env['account.move.receipts'].create({
+                    'invoice_id': odoo_invoice.id,
+                    'name': self.env.user.currency_id.symbol + invoice['PaidAmount'][:-2] + ' Paid On ' +
+                            invoice['PaymentRequestDateTime'].split('T')[0],
+                    'ref_nums': invoice['RefNum'],
+                    'model': str(self._inherit),
+                })
+                journal_id, ebiz_method = odoo_invoice._get_ebiz_journal_and_method()
+                if not journal_id:
+                    continue
+                payment = self.env['account.payment'] \
+                    .sudo().with_context(active_ids=odoo_invoice.ids, active_model='account.move',
+                                         active_id=odoo_invoice.id) \
+                    .create({
+                        'journal_id': journal_id.id,
+                        'payment_method_id': ebiz_method.payment_method_id.id,
+                        'payment_method_line_id': ebiz_method.id,
+                        'amount': float(invoice['PaidAmount']),
+                        'token_type': None,
+                        'partner_id': odoo_invoice.partner_id.id,
+                        'transaction_ref': odoo_invoice.name or None,
+                        'payment_type': 'inbound',
+                        'memo': odoo_invoice._build_payment_memo(),
+                    })
+                payment.with_context({'pass_validation': True}).action_post()
+                odoo_invoice.with_context({'payment_id': payment.id}).reconcile()
+                odoo_invoice.sync_to_ebiz()
+                odoo_invoice.write({'save_payment_link': False, 'ebiz_payment_link': 'applied',
+                                    'request_amount': 0, 'last_request_amount': 0})
+                if odoo_invoice['amount_residual'] <= 0:
+                    super(AccountMoveInh, odoo_invoice).payment_action_capture()
+                    odoo_invoice.mark_as_applied()
+                else:
+                    ebiz.client.service.MarkEbizWebFormPaymentAsApplied(**{
+                        'securityToken': ebiz._generate_security_json(),
+                        'paymentInternalId': odoo_invoice.payment_internal_id,
+                    })
+            except Exception:
+                _logger.exception("Failed to apply web form payment for invoice %s", odoo_invoice.id)
+                continue
+
+    def _apply_quick_payments(self, ebiz, start, end):
+        quick_payments = ebiz.client.service.GetPayments(**{
+            'securityToken': ebiz._generate_security_json(),
+            'fromDateTime': str(start.date()),
+            'toDateTime': str(end.date()),
+            'start': 0,
+            'limit': 10000,
+        })
+        if not quick_payments:
+            return
+        for pay in quick_payments:
+            try:
+                if pay['InvoiceInternalId']:
+                    is_odoo_invoice = self.env['account.move'].search(
+                        [('ebiz_internal_id', '=', pay['InvoiceInternalId'])])
+                    is_credit = self.env['account.payment'].search([('name', '=', pay['InvoiceNumber'])])
+                    if is_odoo_invoice:
+                        is_odoo_invoice.ebiz_create_payment_line(pay['PaidAmount'])
+                        ebiz.client.service.MarkPaymentAsApplied(**{
+                            'securityToken': ebiz._generate_security_json(),
+                            'paymentInternalId': pay['PaymentInternalId'],
+                            'invoiceNumber': pay['InvoiceNumber'],
+                        })
+                        self.env['account.move.receipts'].create({
+                            'invoice_id': is_odoo_invoice.id,
+                            'name': self.env.user.currency_id.symbol + pay['PaidAmount'][:-2] + ' Paid On ' +
+                                    pay['DatePaid'].split('T')[0],
+                            'ref_nums': pay['RefNum'],
+                            'model': str(self._inherit),
+                        })
+                    if is_credit:
+                        ebiz.client.service.MarkPaymentAsApplied(**{
+                            'securityToken': ebiz._generate_security_json(),
+                            'paymentInternalId': pay['PaymentInternalId'],
+                            'invoiceNumber': pay['InvoiceNumber'],
+                        })
+                        is_credit.action_draft()
+                        is_credit.cancel()
+                else:
+                    partner = self.env['res.partner'].search([('id', '=', pay['CustomerId'])])
+                    if not (partner and pay['TypeId'] in ['QuickPay']):
+                        continue
+                    journal_id, ebiz_method = self._get_ebiz_journal_and_method(
+                        company=partner.company_id or self.env.company)
+                    if not journal_id:
+                        continue
+                    ebiz.client.service.MarkPaymentAsApplied(**{
+                        'securityToken': ebiz._generate_security_json(),
+                        'paymentInternalId': pay['PaymentInternalId'],
+                        'invoiceNumber': pay['InvoiceNumber'] or '',
+                    })
+                    self.env['account.payment'].sudo().create({
+                        'journal_id': journal_id.id,
+                        'payment_method_id': ebiz_method.payment_method_id.id,
+                        'payment_method_line_id': ebiz_method.id,
+                        'partner_id': partner.id,
+                        'payment_reference': pay['RefNum'],
+                        'amount': pay['PaidAmount'],
+                        'partner_type': 'customer',
+                        'payment_type': 'inbound',
+                        'transaction_ref': pay['InvoiceNumber'] or '',
+                    }).action_post()
+            except Exception:
+                _logger.exception("Failed to apply quick payment ref %s", pay.get('RefNum'))
+                continue
+
+    def _apply_recurring_payments(self, ebiz, start, end):
+        recurring_payments = ebiz.client.service.SearchRecurringPayments(**{
+            'securityToken': ebiz._generate_security_json(),
+            "fromDateTime": str(start.date()),
+            "toDateTime": str(end.date()),
+            "limit": 1000,
+            "start": 0,
+        })
+        if not recurring_payments:
+            return
+        for r_pay in recurring_payments:
+            try:
+                partner = self.env['res.partner'].search([('id', '=', r_pay['CustomerId'])])
+                if not partner:
+                    continue
+                journal_id, ebiz_method = self._get_ebiz_journal_and_method(
+                    company=partner.company_id or self.env.company)
+                if not journal_id:
+                    continue
+                ebiz.client.service.MarkRecurringPaymentAsApplied(**{
+                    'securityToken': ebiz._generate_security_json(),
+                    'paymentInternalId': r_pay['PaymentInternalId'],
+                    'invoiceNumber': r_pay['InvoiceNumber'] or '',
+                })
+                self.env['account.payment'].sudo().create({
+                    'journal_id': journal_id.id,
+                    'payment_method_id': ebiz_method.payment_method_id.id,
+                    'payment_method_line_id': ebiz_method.id,
+                    'partner_id': partner.id,
+                    'payment_reference': r_pay['RefNum'],
+                    'amount': r_pay['PaidAmount'],
+                    'partner_type': 'customer',
+                    'payment_type': 'inbound',
+                    'transaction_ref': r_pay['InvoiceNumber'] or '',
+                }).action_post()
+            except Exception:
+                _logger.exception("Failed to apply recurring payment ref %s", r_pay.get('RefNum'))
+                continue
 
     def received_apply_email_after_confirmation(self, invoice):
         try:
@@ -1150,18 +1047,11 @@ class AccountMoveInh(models.Model):
             if odoo_invoice.state != 'posted':
                 odoo_invoice.action_post()
 
-            if odoo_invoice['amount_residual'] - float(invoice['PaidAmount']) > 0:
-                odoo_invoice.write({
-                    'ebiz_invoice_status': 'partially_received',
-                    'receipt_ref_num': invoice['RefNum'],
-                    'is_payment_processed': True
-                })
-            else:
-                odoo_invoice.write({
-                    'ebiz_invoice_status': 'received',
-                    'receipt_ref_num': invoice['RefNum'],
-                    'is_payment_processed': True
-                })
+            odoo_invoice.write({
+                'ebiz_invoice_status': 'partially_received' if odoo_invoice['amount_residual'] - float(invoice['PaidAmount']) > 0 else 'received',
+                'receipt_ref_num': invoice['RefNum'],
+                'is_payment_processed': True,
+            })
 
             self.env['account.move.receipts'].create({
                 'invoice_id': odoo_invoice.id,
@@ -1170,14 +1060,9 @@ class AccountMoveInh(models.Model):
                 'ref_nums': invoice['RefNum'],
                 'model': str(self._inherit),
             })
-            journal_id = False
-            payment_acq = self.env['payment.provider'].search(
-                [('company_id', '=', self.company_id.id), ('code', '=', 'ebizcharge')])
-            if payment_acq and payment_acq.state == 'enabled':
-                journal_id = payment_acq.journal_id
+            journal_id, ebiz_method = self._get_ebiz_journal_and_method()
             if journal_id:
-                ebiz_method = self.env['account.payment.method.line'].search(
-                    [('journal_id', '=', journal_id.id), ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
+                memo = self._build_payment_memo()
                 payment = self.env['account.payment'] \
                     .sudo().with_context(active_ids=odoo_invoice.ids, active_model='account.move',
                                   active_id=odoo_invoice.id) \
@@ -1189,10 +1074,11 @@ class AccountMoveInh(models.Model):
                      'token_type': None,
                      'partner_id': self.partner_id.id,
                      'transaction_ref': self.name or None,
-                     'payment_type': 'inbound'
+                     'payment_type': 'inbound',
+                     'memo': memo
                      })
                 payment.with_context({'pass_validation': True}).action_post()
-                self.reconcile()
+                self.with_context({'payment_id': payment.id}).reconcile()
                 odoo_invoice.sync_to_ebiz()
                 odoo_invoice.save_payment_link = False
                 if odoo_invoice['amount_residual'] <= 0:
@@ -1200,11 +1086,7 @@ class AccountMoveInh(models.Model):
                     odoo_invoice.mark_as_applied()
                     return res
                 else:
-                    instance = None
-                    if self.partner_id.ebiz_profile_id:
-                        instance = self.partner_id.ebiz_profile_id
-
-                    ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
+                    ebiz = self._get_ebiz_client()
                     ebiz.client.service.MarkEbizWebFormPaymentAsApplied(**{
                         'securityToken': ebiz._generate_security_json(),
                         'paymentInternalId': odoo_invoice.payment_internal_id,
@@ -1217,16 +1099,17 @@ class AccountMoveInh(models.Model):
 
     def reconcile(self):
         for invoice_payment in self:
-            _logger.info('********** %s **********' % invoice_payment.name)
             payments = self.env['account.payment'].sudo().search(
                 [('payment_reference', '=', invoice_payment.name), ('company_id', '=', invoice_payment.company_id.id)])
+            if not payments and self.env.context.get('payment_id'):
+                payments = self.env['account.payment'].sudo().browse(self.env.context.get('payment_id'))
             for payment in payments:
+                if not payment.is_reconciled and payment.state == 'in_process':
+                    payment.action_validate()
                 if not payment.is_reconciled and payment.state == 'paid':
-                    _logger.info('******************** %s ********************' % payment.name)
                     payment_ref = self.env['account.move.line'].search(
                         [('move_name', '=', payment.name), ('move_id.company_id', '=', invoice_payment.company_id.id)])
                     if payment_ref:
-                        _logger.info('################################ %s ################################' % payment.name)
                         index = len(payment_ref) - 1
                         invoice_payment.js_assign_outstanding_line(payment_ref[index].id)
 
@@ -1241,49 +1124,51 @@ class AccountMoveInh(models.Model):
                         invoice_payment.js_assign_outstanding_line(payment_ref[index].id)
 
     @api.model
-    def read(self, fields, load='_classic_read'):
-        if len(self) == 1 and (self.ebiz_invoice_status == 'pending' or self.ebiz_payment_link == 'pending') and not self.email_received_payments:
-            instance = None
-            if self.partner_id.ebiz_profile_id:
-                instance = self.partner_id.ebiz_profile_id
+    def _cron_refresh_pending_invoice_status(self):
+        """Scheduled action: check EBizCharge for received payments on all pending email-pay invoices."""
+        pending = self.search([
+            '|',
+            ('ebiz_invoice_status', '=', 'pending'),
+            ('ebiz_payment_link', '=', 'pending'),
+            ('email_received_payments', '=', False),
+        ])
+        if not pending:
+            return
 
-            ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
-            today = datetime.now()
-            end = today + timedelta(days=1)
-            start = today + timedelta(days=-365)
-            received_payments = ebiz.client.service.SearchEbizWebFormReceivedPayments(**{
-                'securityToken': ebiz._generate_security_json(),
-                'fromPaymentRequestDateTime': str(start.date()),
-                'toPaymentRequestDateTime': str(end.date()),
-                'start': 0,
-                'limit': 10000,
-            })
-            if received_payments:
-                invoice_obj = self.env['account.move']
-                for invoice in received_payments:
-                    odoo_invoice = invoice_obj.search(
-                        [('payment_internal_id', '=', invoice['PaymentInternalId'])
-                            , '|', ('ebiz_invoice_status', '=', 'pending'), ('ebiz_payment_link', '=', 'pending')])
-                    if odoo_invoice:
-                        if odoo_invoice.save_payment_link:
-                            odoo_invoice.ebiz_payment_link = 'received'
-                        else:
-                            odoo_invoice.email_received_payments = True
+        start, end = self._get_ebiz_date_range()
+        invoice_obj = self.env['account.move']
 
-        return super(AccountMoveInh, self).read(fields, load=load)
+        for profile in pending.partner_id.ebiz_profile_id:
+            try:
+                ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=profile)
+                received_payments = ebiz.client.service.SearchEbizWebFormReceivedPayments(**{
+                    'securityToken': ebiz._generate_security_json(),
+                    'fromPaymentRequestDateTime': str(start.date()),
+                    'toPaymentRequestDateTime': str(end.date()),
+                    'start': 0,
+                    'limit': 10000,
+                })
+                if not received_payments:
+                    continue
+                for payment in received_payments:
+                    odoo_invoice = self.search([
+                        ('payment_internal_id', '=', payment['PaymentInternalId']),
+                        '|',
+                        ('ebiz_invoice_status', '=', 'pending'),
+                        ('ebiz_payment_link', '=', 'pending'),
+                    ])
+                    if not odoo_invoice:
+                        continue
+                    if odoo_invoice.save_payment_link:
+                        odoo_invoice.ebiz_payment_link = 'received'
+                    else:
+                        odoo_invoice.email_received_payments = True
+            except Exception:
+                _logger.exception("Failed to refresh pending invoice status for profile %s", profile.id)
 
     def delete_ebiz_invoice(self):
-        """
-            Niaz Implementation:
-            Delete the  pending invoice
-        """
-
         try:
-            instance = None
-            if self.partner_id.ebiz_profile_id:
-                instance = self.partner_id.ebiz_profile_id
-
-            ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
+            ebiz = self._get_ebiz_client()
 
             received_payments = ebiz.client.service.DeleteEbizWebFormPayment(**{
                 'securityToken': ebiz._generate_security_json(),
@@ -1291,12 +1176,13 @@ class AccountMoveInh(models.Model):
             })
 
             if received_payments.Status == 'Success' or self.save_payment_link:
-                self.ebiz_invoice_status = 'delete'
-                self.email_received_payments = False
-                self.save_payment_link = False
-                self.odoo_payment_link = False
-                self.env.cr.commit()
-                self.request_amount -= self.last_request_amount
+                self.write({
+                    'ebiz_invoice_status': 'delete',
+                    'email_received_payments': False,
+                    'save_payment_link': False,
+                    'odoo_payment_link': False,
+                    'request_amount': self.request_amount - self.last_request_amount,
+                })
 
                 return message_wizard('Email pay request has been successfully canceled!')
 
@@ -1304,16 +1190,8 @@ class AccountMoveInh(models.Model):
             raise UserError(e)
 
     def mark_as_applied(self):
-        """
-            Niaz Implementation:
-            Once invoice paid via email, this function mark it as applied and remove from received list.
-        """
         try:
-            instance = None
-            if self.partner_id.ebiz_profile_id:
-                instance = self.partner_id.ebiz_profile_id
-
-            ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
+            ebiz = self._get_ebiz_client()
             received_payments = ebiz.client.service.MarkEbizWebFormPaymentAsApplied(**{
                 'securityToken': ebiz._generate_security_json(),
                 'paymentInternalId': self.payment_internal_id,
@@ -1322,19 +1200,12 @@ class AccountMoveInh(models.Model):
             if received_payments.Status == 'Success':
                 self.ebiz_invoice_status = 'applied'
                 self.is_payment_processed = True
-                self.env.cr.commit()
         except Exception as e:
             raise UserError(e)
 
     def show_pending_ebiz_email(self):
-        instance = None
-        if self.partner_id.ebiz_profile_id:
-            instance = self.partner_id.ebiz_profile_id
-
-        ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
-        today = datetime.now()
-        end = today + timedelta(days=1)
-        start = today + timedelta(days=-365)
+        ebiz = self._get_ebiz_client()
+        start, end = self._get_ebiz_date_range()
 
         received_payments = ebiz.client.service.SearchEbizWebFormReceivedPayments(**{
             'securityToken': ebiz._generate_security_json(),
@@ -1364,9 +1235,7 @@ class AccountMoveInh(models.Model):
                 else:
                     continue
 
-        today = datetime.now()
-        end = today + timedelta(days=1)
-        start = today + timedelta(days=-7)
+        start, end = self._get_ebiz_date_range(7)
         params = {
             'securityToken': ebiz._generate_security_json(),
             'fromPaymentRequestDateTime': str(start.date()),
@@ -1407,7 +1276,7 @@ class AccountMoveInh(models.Model):
                 "type_id": payment['TypeId'],
                 "email_id": payment['CustomerEmailAddress'],
             }
-            payment_lines.append([0, 0, payment_line])
+            payment_lines.append(fields.Command.create(payment_line))
         wiz = self.env['ebiz.pending.payment'].create({})
         wiz.payment_lines = payment_lines
         action = self.env.ref('payment_ebizcharge_crm.action_ebiz_pending_payments_form').read()[0]
@@ -1415,42 +1284,25 @@ class AccountMoveInh(models.Model):
         return action
 
     def _ebiz_check_invoice_update(self, values):
-        """
-        Kuldeeps implementation 
-        def: checks if the after updating the Invoice should we run update sync base on the
-        values that are updating.
-        @params:
-        values : update values params
-        """
-        update_fields = ["partner_id", "name", "invoice_date", "amount_total", "invoice_date_due",
-                         "amount_total", "currency_id", "amount_tax", "user_id", "invoice_line_ids", "amount_residual",
-                         "ebiz_invoice_status"]
-        for update_field in update_fields:
-            if update_field in values:
-                return True
-        return False
+        update_fields = {"partner_id", "name", "invoice_date", "amount_total", "invoice_date_due",
+                         "currency_id", "amount_tax", "user_id", "invoice_line_ids", "amount_residual",
+                         "ebiz_invoice_status"}
+        return any(f in values for f in update_fields)
 
     def email_receipt_ebiz(self):
-        """
-            Niaz Implementation:
-            Email the receipt to customer, if email receipts templates not there in odoo, it will fetch.
-            return: wizard to select the receipt template
-        """
         try:
-            ebiz_obj = self.env['ebiz.charge.api']
+            instance = self._get_ebiz_instance()
             email_obj = self.env['email.receipt']
-            instance = self.partner_id.ebiz_profile_id
-            ebiz = ebiz_obj.get_ebiz_charge_obj(instance=instance)
+            ebiz = self._get_ebiz_client()
             receipts = ebiz.client.service.GetEmailTemplates(**{
                 'securityToken': ebiz._generate_security_json(),
             })
-            if receipts:
+            if receipts and instance:
                 for template in receipts:
                     odoo_temp = email_obj.search(
                         [('receipt_id', '=', template['TemplateInternalId']), ('instance_id', '=', instance.id)])
                     if not odoo_temp:
-                        if template['TemplateTypeId'] == 'TransactionReceiptMerchant' or template[
-                            'TemplateTypeId'] == 'TransactionReceiptCustomer':
+                        if template['TemplateTypeId'] in ('TransactionReceiptMerchant', 'TransactionReceiptCustomer'):
                             email_obj.create({
                                 'name': template['TemplateName'],
                                 'receipt_subject': template['TemplateSubject'],
@@ -1459,7 +1311,6 @@ class AccountMoveInh(models.Model):
                                 'content_type': template['TemplateTypeId'],
                                 'instance_id': instance.id,
                             })
-            self.env.cr.commit()
             return {'type': 'ir.actions.act_window',
                     'name': _('Email Receipt'),
                     'res_model': 'wizard.email.receipts',
@@ -1467,7 +1318,7 @@ class AccountMoveInh(models.Model):
                     'view_mode': 'form',
                     'view_type': 'form',
                     'context': {
-                        'default_partner_ids': [[6, 0, [self.partner_id.id]]],
+                        'default_partner_ids': [fields.Command.set([self.partner_id.id])],
                         'default_record_id': self.id,
                         'default_ebiz_profile_id': self.partner_id.ebiz_profile_id.id,
                         'default_email_transaction_id': self.receipt_ref_num,
@@ -1534,7 +1385,6 @@ class AccountMoveInh(models.Model):
                             odoo_temp.write({
                                 'template_subject': template['TemplateSubject'],
                             })
-            self.env.cr.commit()
 
             invoice_ids = [ids.id for ids in self if ids.payment_state != 'paid']
             if not invoice_ids:
@@ -1547,7 +1397,7 @@ class AccountMoveInh(models.Model):
                     'view_mode': 'form',
                     'view_type': 'form',
                     'context': {
-                        'default_invoice_ids': [[6, 0, invoice_ids]],
+                        'default_invoice_ids': [fields.Command.set(invoice_ids)],
                         'selection_check': 1,
                     },
                     }
@@ -1558,15 +1408,9 @@ class AccountMoveInh(models.Model):
     def button_draft(self):
         ret = super(AccountMoveInh, self).button_draft()
         for rec in self:
-            sync = False
-            if not rec.payment_state == 'paid' and not rec.done_transaction_ids:
-                sync = True
-            if (rec.move_type == "out_refund" or rec.move_type == "out_invoice") and rec.ebiz_internal_id and sync:
-                instance = None
-                if rec.partner_id.ebiz_profile_id:
-                    instance = rec.partner_id.ebiz_profile_id
-
-                ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
+            if (rec.move_type == "out_refund" or rec.move_type == "out_invoice") and rec.ebiz_internal_id \
+                    and rec.payment_state != 'paid' and not rec.done_transaction_ids:
+                ebiz = rec._get_ebiz_client()
                 ebiz.client.service.UpdateInvoice(**{
                     'securityToken': ebiz._generate_security_json(),
                     'invoice': {
@@ -1580,63 +1424,13 @@ class AccountMoveInh(models.Model):
                 })
         return ret
 
-    def _invoice_lines_params(self, invoice_lines):
-        lines_list = []
-        for i, line in enumerate(invoice_lines):
-            lines_list.append(self._invoice_line_params(line, i + 1))
-        array_of_items = self.client.get_type('ns0:ArrayOfItem')
-        return array_of_items(lines_list)
-
-    def _get_customer_address(self, partner):
-        name_array = partner.name.split(' ') if partner.name else False
-        first_name = name_array[0] if name_array else ''
-        if name_array and len(name_array) >= 2:
-            last_name = " ".join(name_array[1:])
-        else:
-            last_name = ""
-        address = {
-            "FirstName": first_name,
-            "LastName": last_name,
-            "CompanyName": partner.name if partner.company_type == "company" else partner.parent_id.name or "",
-            "Address1": partner.street or "",
-            "Address2": partner.street2 or "",
-            "City": partner.city or "",
-            "State": partner.state_id.name or "",
-            "ZipCode": partner.zip or "",
-            "Country": partner.country_id.code or "US"
-        }
-        return address
-
-    def _invoice_line_params(self, line, item_no):
-        item = {
-            "ItemId": line.product_id.id,
-            "Name": line.product_id.name,
-            "Description": line.product_id.name,
-            "UnitPrice": line.price_unit,
-            "Qty": line.quantity,
-            "Taxable": False,
-            "TaxRate": 0,
-            "GrossPrice": 0,
-            "WarrantyDiscount": 0,
-            "SalesDiscount": 0,
-            "UnitOfMeasure": line.product_id.uom_id.name,
-            "TotalLineAmount": line.price_subtotal,
-            "TotalLineTax": 0,
-            "ItemLineNumber": item_no
-        }
-        return item
-
     def js_assign_outstanding_line(self, line_id):
         instances = self.env['ebizcharge.instance.config'].search(
             [('is_valid_credential', '=', True)])
         if instances and self.move_type in ['out_refund', 'out_invoice']:
             self.ensure_one()
             lines = self.env['account.move.line'].browse(line_id)
-            instance = None
-            if self.partner_id.ebiz_profile_id:
-                instance = self.partner_id.ebiz_profile_id
-
-            ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
+            ebiz = self._get_ebiz_client()
             from_date = datetime.strftime((self.create_date - timedelta(days=1)), '%Y-%m-%dT%H:%M:%S')
             to_date = datetime.strftime((datetime.now() + timedelta(days=1)), '%Y-%m-%dT%H:%M:%S')
             params = {
@@ -1667,22 +1461,9 @@ class AccountMoveInh(models.Model):
             return super(AccountMoveInh, self).js_assign_outstanding_line(line_id)
 
     def action_generate_odoo_payment_link(self):
-        """
-        Niaz Implementation:
-        Call the wizard, Use to generate odoo payment link.
-        return: Wizard
-        """
         if self.email_received_payments:
             raise UserError('Invoice is already paid. You cannot generate a payment link!')
-        instance = None
-        if self.partner_id.ebiz_profile_id:
-            instance = self.partner_id.ebiz_profile_id
-        else:
-            default_instance = self.env['ebizcharge.instance.config'].search(
-                [('is_valid_credential', '=', True), ('is_default', '=', True), ('is_active', '=', True)],
-                limit=1)
-            if default_instance:
-                instance = default_instance
+        instance = self._get_ebiz_instance()
 
         if self.save_payment_link and self.payment_internal_id:
             ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
@@ -1697,8 +1478,13 @@ class AccountMoveInh(models.Model):
                 self.message_post(body=message_log)
                 self.save_payment_link = False
         elif self and self.save_payment_link:
-            message_log = 'EBizCharge Payment Link invalidated: ' + str(self.save_payment_link)
-            self.message_post(body=message_log)
+            self.message_post(
+                body=Markup(
+                    'EBizCharge Payment Link invalidated: <a href="%s" target="_blank">%s</a>' % (
+                        self.save_payment_link, self.save_payment_link)
+                ),
+                message_type="comment",
+            )
             self.save_payment_link = False
 
         self.odoo_payment_link = True
@@ -1745,35 +1531,32 @@ class AccountMoveInh(models.Model):
                 if odoo_pay_link:
                     text = f"This document has a pending payment link. Proceeding may increase the risk of double payments. Do you want to continue?"
                     wizard = self.env['wizard.receive.email.payment.link'].create({
-                                                                                   "is_pay_link": True,
-                                                                                   "invoice_ids": [(6,0, self.ids)] ,
-                                                                                   "text": text})
+                        "is_pay_link": True,
+                        "invoice_ids": [fields.Command.set(self.ids)],
+                        "text": text,
+                    })
                     action = self.env.ref('payment_ebizcharge_crm.wizard_received_email_pay_payment_link').read()[0]
                     action['res_id'] = wizard.id
-                    # action['context'] = dict(
-                    #     invoice=self.id,
-                    # )
                     return action
 
                 elif ebiz_pay_link:
-                    # raise UserError(str(ebiz_pay_link))
                     text = f"This document has an existing payment link. Proceeding will invalidate the existing link. Do you want to continue?"
                     wizard = self.env['wizard.receive.email.payment.link'].create({
-
-                                                                                   "is_pay_link": True,
-                                                                                   "invoice_ids": [(6, 0, self.ids)],
-                                                                                   "text": text})
+                        "is_pay_link": True,
+                        "invoice_ids": [fields.Command.set(self.ids)],
+                        "text": text,
+                    })
                     action = self.env.ref('payment_ebizcharge_crm.wizard_received_email_pay_payment_link').read()[0]
                     action['res_id'] = wizard.id
-                    # action['context'] = dict(
-                    #     invoice=self.id,
-                    # )
                     return action
                 else:
                     for inv in self:
+                        if inv.move_type != 'out_invoice':
+                            raise UserError(
+                                'Generating an EBizCharge payment link is only available for invoice payments.')
                         if inv and inv.payment_state not in ("paid", "in_payment"):
                             payment_line = {
-                                "invoice_id": int(inv.id),
+                                "invoice_id": inv.id,
                                 "name": inv.name,
                                 "customer_name": inv.partner_id.id,
                                 "amount_due": inv.amount_residual_signed,
@@ -1785,7 +1568,7 @@ class AccountMoveInh(models.Model):
                                 "email_id": inv.partner_id.email,
                                 "ebiz_profile_id": inv.partner_id.ebiz_profile_id.id,
                             }
-                            payment_lines.append([0, 0, payment_line])
+                            payment_lines.append(fields.Command.create(payment_line))
                         profile = inv.partner_id.ebiz_profile_id.id
                     wiz = self.env['wizard.ebiz.generate.link.payment.bulk'].with_context(
                         profile=profile).create(
@@ -1802,77 +1585,6 @@ class AccountMoveInh(models.Model):
 
 
 
-
-
-    def aagenerate_payment_link(self):
-        """
-        Niaz Implementation:
-        Call the wizard, use to send email invoice to customer, fetch the email templates incase not present before
-        return: Wizard
-        """
-        try:
-            if self.move_type != 'out_invoice':
-                raise UserError('Generating an EBizCharge payment link is only available for invoice payments.')
-            if self.payment_state == "paid":
-                raise UserError('The invoice is already paid.')
-
-            if self.amount_residual <= 0:
-                raise UserError('The value of the payment amount must be positive.')
-
-            if self.email_received_payments:
-                raise UserError('Invoice is already paid. You cannot generate a payment link!')
-
-            # if self.ebiz_invoice_status in ['pending']:
-            #     raise UserError(
-            #         "Email pay link is already generated. if you want to generate payment link then cancel email payment request link!")
-            #
-            # if self.odoo_payment_link:
-            #     raise UserError('Payment link is already generated.')
-
-            if self.state != 'posted':
-                self.action_post()
-
-            if not self.ebiz_internal_id:
-                self.sync_to_ebiz()
-
-            if self.save_payment_link:
-                text = f"This document has an existing payment link. Proceeding will invalidate the existing link. Do you want to continue?"
-                wizard = self.env['wizard.receive.email.payment.link'].create({"record_id": self.id,
-                                                                               "odoo_invoice": self.id,
-                                                                               "text": text})
-                action = self.env.ref('payment_ebizcharge_crm.wizard_received_email_pay_payment_link').read()[0]
-                action['res_id'] = wizard.id
-                action['context'] = dict(
-                    invoice=self,
-                )
-                return action
-                # return {'type': 'ir.actions.act_window',
-                #         'name': _('Copy Payment Link'),
-                #         'res_model': 'ebiz.payment.link.copy',
-                #         'target': 'new',
-                #         'view_mode': 'form',
-                #         'view_type': 'form',
-                #         'context': {
-                #             'default_link': self.save_payment_link,
-                #         },
-                #         }
-            else:
-
-                return {'type': 'ir.actions.act_window',
-                        'name': _('Generate Payment Link'),
-                        'res_model': 'ebiz.payment.link.wizard',
-                        'target': 'new',
-                        'view_mode': 'form',
-                        'view_type': 'form',
-                        'context': {
-                            'default_ebiz_profile_id': self.partner_id.ebiz_profile_id.id,
-                            'active_id': self.id,
-                            'active_model': 'account.move',
-                        },
-                        }
-
-        except Exception as e:
-            raise ValidationError(e)
 
 
     def action_view_payment_transactions(self):
@@ -1905,7 +1617,16 @@ class AccountMoveLine(models.Model):
         ret['context'].update({
             'default_is_pay_link': check
         })
+        if 'active_id' not in self.env.context:
+            ret['context'].update({
+                'active_id': self.move_id.id if len(self.move_id) == 1 else False,
+                'main_model': 'account.move',
+            })
         return ret
+
+    def js_update_enable_sur(self, **kwargs):
+        if self.exists():
+            self.move_id.js_update_enable_sur(**kwargs)
 
 
 class AccountReceipts(models.Model):
@@ -1920,14 +1641,4 @@ class AccountReceipts(models.Model):
 
 
 
-class IrModuleModule(models.Model):
-    _inherit = 'ir.module.module'
-
-
-class IrActionWindow(models.Model):
-    _inherit = 'ir.actions.act_window'
-
-
-class IrActionWindowView(models.Model):
-    _inherit = 'ir.actions.act_window.view'
 

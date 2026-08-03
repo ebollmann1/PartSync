@@ -14,7 +14,7 @@ class TransactionDetailsLine(models.TransientModel):
     _description = "Transaction Detail Line"
 
     transaction_detail_id = fields.Many2one('transaction.detail.wizard')
-    currency_id = fields.Many2one('res.currency', default=lambda self:  self.env.user.currency_id.id)
+    currency_id = fields.Many2one('res.currency', default=lambda self: self.env.user.company_id.currency_id.id)
     name = fields.Char(string='Document #')
     document_type = fields.Char(string="Document Type")
     payment_amount = fields.Monetary(string='Payment Amount')

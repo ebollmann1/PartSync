@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<templates xml:space="preserve">
+    <t t-name="payment_ebizcharge_crm.IconCharField" t-inherit="web.CharField" t-inherit-mode="primary">
+
+        <!--
+            Readonly branch: base template renders just <span t-esc="formattedValue"/>.
+            Add the error icon as a sibling immediately after that span.
+        -->
+        <xpath expr="//t[@t-if='props.readonly']/span" position="attributes">
+            <attribute name="style">flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;</attribute>
+            <attribute name="t-att-class">(shouldShowIcon &amp;&amp; hasContent) ? 'me-1' : ''</attribute>
+        </xpath>
+        <xpath expr="//t[@t-if='props.readonly']/span" position="after">
+            <button t-if="shouldShowIcon"
+                    class="btn p-0 border-0 text-danger"
+                    t-att-data-tooltip="iconTooltip">
+                <i class="fa fa-times-circle" role="img" aria-label="Invalid"/>
+            </button>
+        </xpath>
+
+        <xpath expr="//div[hasclass('o_field_input_buttons')]" position="attributes">
+            <attribute name="style" add="visibility: visible;" separator=" "/>
+        </xpath>
+        <xpath expr="//div[hasclass('o_field_input_buttons')]" position="inside">
+            <button t-if="shouldShowIcon"
+                    class="btn py-0 px-1 border-0 text-danger"
+                    t-att-data-tooltip="iconTooltip">
+                <i class="fa fa-times-circle" role="img" aria-label="Invalid"/>
+            </button>
+        </xpath>
+
+    </t>
+</templates>

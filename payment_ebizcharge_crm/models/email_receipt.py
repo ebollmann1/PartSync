@@ -17,18 +17,13 @@ class EmailReceipt(models.Model):
     instance_id = fields.Many2one('ebizcharge.instance.config')
 
     def get_receipts(self):
-        """
-            Niaz implementation
-            Fetch email receipts
-        """
         try:
             instances = self.env['ebizcharge.instance.config'].search(
                 [('is_valid_credential', '=', True), ('is_active', '=', True)])
             if instances:
                 instances[0].action_update_profiles('email.templates')
-            email_obj = self.env['email.receipt']
             ebiz_obj = self.env['ebiz.charge.api']
-            
+
             for instance in instances:
                 ebiz = ebiz_obj.get_ebiz_charge_obj(instance=instance)
                 receipts = ebiz.client.service.GetEmailTemplates(**{
@@ -36,12 +31,11 @@ class EmailReceipt(models.Model):
                 })
                 if receipts:
                     for template in receipts:
-                        odoo_temp = email_obj.search(
+                        odoo_temp = self.search(
                             [('receipt_id', '=', template['TemplateInternalId']), ('instance_id', '=', instance.id)])
                         if not odoo_temp:
-                            if template['TemplateTypeId'] == 'TransactionReceiptMerchant' or template[
-                                'TemplateTypeId'] == 'TransactionReceiptCustomer':
-                                email_obj.create({
+                            if template['TemplateTypeId'] in ('TransactionReceiptMerchant', 'TransactionReceiptCustomer'):
+                                self.create({
                                     'name': template['TemplateName'],
                                     'receipt_subject': template['TemplateSubject'],
                                     'receipt_id': template['TemplateInternalId'],

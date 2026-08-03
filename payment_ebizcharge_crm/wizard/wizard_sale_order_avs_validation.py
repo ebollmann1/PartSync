@@ -1,4 +1,4 @@
-from odoo import fields, models, _
+from odoo import fields, models, _, api
 
 
 class WizardSaleOrderTransactionValidation(models.TransientModel):
@@ -17,120 +17,109 @@ class WizardSaleOrderTransactionValidation(models.TransientModel):
     order_id = fields.Many2one('sale.order')
 
     def _compute_avs_validation_resp(self):
-        self.check_avs_match = (self.card_code.strip() == 'Match') & (self.address.strip() == 'Match') & (
+        self.check_avs_match = (self.card_code.strip() == 'Match') and (self.address.strip() == 'Match') and (
                     self.zip_code.strip() == 'Match')
 
+    @api.model
+    def _set_payment_memo(self, payments):
+        for payment in payments:
+            if payment.memo:
+                memo = " ".join(val for val in [payment.memo, self.order_id.client_order_ref] if val)
+            else:
+                memo = " ".join(val for val in [self.order_id.name, self.order_id.client_order_ref] if val)
+            if payment.payment_token_id:
+                memo += ' ' + payment.payment_token_id.get_encrypted_name()
+            payment.memo = memo
+
     def process_transaction_anyway(self):
-        """
-        Kuldeep's implementation
-        Proceed with transaction
-        """
         if not self.wizard_process_id.payment_token_id:
             token_id = self.create_credit_card_payment_method().id
-            self.wizard_process_id.payment_token_id = token_id
+            self.wizard_process_id.write({'payment_token_id': token_id})
         if not self.transaction_id:
-            ebiz_method = self.env['account.payment.method.line'].search(
-                [('journal_id', '=', self.wizard_process_id.journal_id.id), ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
+            return self._process_new_transaction()
+        return self._process_existing_transaction()
 
-            payment = self.env['account.payment'].sudo().create({'journal_id': self.wizard_process_id.journal_id.id,
-                                                          'payment_method_id': ebiz_method.payment_method_id.id,
-                                                          'payment_method_line_id':ebiz_method.id,
-                                                          'payment_token_id': self.wizard_process_id.payment_token_id.id,
-                                                          'amount': abs(self.wizard_process_id.amount),
-                                                          'partner_id': self.wizard_process_id.sub_partner_id.id,
-                                                          'partner_type': 'customer',
-                                                          'payment_type': 'inbound',
-                                                          'ebiz_avs_street': self.wizard_process_id.ebiz_avs_street,
-                                                          'ebiz_avs_zip': self.wizard_process_id.ebiz_avs_zip,
-                                                          'ebiz_send_receipt': self.wizard_process_id.ebiz_send_receipt,
-                                                          'ebiz_receipt_emails': self.wizard_process_id.ebiz_receipt_emails,
-                                                          })
-            transactions = payment.with_context({'default_order_id': self.order_id.id}).sudo()._create_payment_transaction()
-            self.transaction_id = transactions.id
-            transactions.sudo().write({
-                'payment_id': payment.id,
-                'sale_order_ids': [self.wizard_process_id.order_id.id],
-                'invoice_ids': False,
-                'reference': self.wizard_process_id.order_id.name, 
-                'transaction_type': self.wizard_process_id.transaction_type,
+    def _process_new_transaction(self):
+        ebiz_method = self.env['account.payment.method.line'].search(
+            [('journal_id', '=', self.wizard_process_id.journal_id.id), ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
+        payment = self.env['account.payment'].sudo().create({
+            'journal_id': self.wizard_process_id.journal_id.id,
+            'payment_method_id': ebiz_method.payment_method_id.id,
+            'payment_method_line_id': ebiz_method.id,
+            'payment_token_id': self.wizard_process_id.payment_token_id.id,
+            'amount': abs(self.wizard_process_id.amount),
+            'partner_id': self.wizard_process_id.sub_partner_id.id,
+            'partner_type': 'customer',
+            'payment_type': 'inbound',
+            'ebiz_avs_street': self.wizard_process_id.ebiz_avs_street,
+            'ebiz_avs_zip': self.wizard_process_id.ebiz_avs_zip,
+            'ebiz_send_receipt': self.wizard_process_id.ebiz_send_receipt,
+            'ebiz_receipt_emails': self.wizard_process_id.ebiz_receipt_emails,
+        })
+        transactions = payment.with_context({'default_order_id': self.order_id.id}).sudo()._create_payment_transaction()
+        self.write({'transaction_id': transactions.id})
+        transactions.sudo().write({
+            'payment_id': payment.id,
+            'sale_order_ids': [self.wizard_process_id.order_id.id],
+            'invoice_ids': False,
+            'transaction_type': self.wizard_process_id.transaction_type,
+        })
+        transactions.with_context({'pre_auth_order': True}).sudo()._send_payment_request()
+        self.wizard_process_id.order_id.write({'transaction_ids': [fields.Command.set([transactions.id])]})
+        payment.write({'payment_transaction_id': transactions.id})
+        if self.wizard_process_id.order_id.partner_id.ebiz_profile_id.payment_memo_setting == 'dn_pon_pm':
+            self._set_payment_memo(payment)
+        if not self.wizard_process_id.card_save and not self.wizard_process_id.card_id:
+            self.wizard_process_id.payment_token_id.delete_payment_method()
+            self.wizard_process_id.partner_id.refresh_payment_methods()
+        return self.message_wizard(self._build_success_context(payment.payment_transaction_id, payment))
+
+    def _process_existing_transaction(self):
+        transactions = self.transaction_id
+        self.transaction_id.sudo()._set_authorized()
+        self.wizard_process_id.order_id.write({'transaction_ids': [fields.Command.set([transactions.id])]})
+        self.transaction_id.payment_id.write({
+            'payment_transaction_id': transactions.id,
+            'transaction_ref': transactions.reference or self.wizard_process_id.memo,
+        })
+        if self.wizard_process_id.order_id.partner_id.ebiz_profile_id.payment_memo_setting == 'dn_pon_pm':
+            self._set_payment_memo(self.transaction_id.payment_id)
+        if not self.wizard_process_id.card_save and not self.wizard_process_id.card_id:
+            self.wizard_process_id.payment_token_id.delete_payment_method()
+            self.wizard_process_id.partner_id.refresh_payment_methods()
+        return self.message_wizard(self._build_success_context(self.transaction_id, self.transaction_id.payment_id))
+
+    def _build_success_context(self, txn, payment):
+        context = {
+            'message': 'Transaction has been successfully processed!',
+            'default_is_ach': self.wizard_process_id.token_type != 'credit',
+            'default_currency_id': txn.currency_id.id,
+            'default_partner_id': txn.token_id.partner_id.name if txn.token_id else payment.partner_id.name,
+            'default_transaction_type': 'Auth Only' if txn.transaction_type == 'pre_auth' else 'Sale',
+            'default_surcharge_percent': f"{txn.surcharge_percent:.2f} %",
+            'default_document_number': txn.reference,
+            'default_reference_number': txn.provider_reference,
+            'default_auth_code': txn.ebiz_auth_code,
+            'default_payment_method': txn.token_id.get_encrypted_name() if txn.token_id else payment.partner_id.name,
+            'default_date_paid': txn.last_state_change,
+            'default_subtotal': txn.amount,
+            'default_avs_street': payment.ebiz_avs_street or txn.ebiz_avs_street,
+            'default_avs_zip_code': payment.ebiz_avs_zip or txn.ebiz_avs_zip_code,
+            'default_cvv': txn.ebiz_cvv_resp,
+            'default_enable_surcharge': payment.enable_surcharge,
+            'default_surcharge_total': txn.amount,
+        }
+        if payment.partner_id.ebiz_profile_id.is_surcharge_enabled and payment.enable_surcharge:
+            eligible = txn.is_pay_method_eligible and txn.is_zip_code_allowed
+            context.update({
+                'default_is_surcharge': bool(payment.partner_id.ebiz_profile_id.is_surcharge_enabled),
+                'default_is_eligible': eligible,
+                'default_surcharge_subtotal': payment.amount,
+                'default_surcharge_amount': txn.surcharge_amt,
+                'default_surcharge_percentage': txn.surcharge_percent,
+                'default_surcharge_total': payment.amount + float(txn.surcharge_amt),
             })
-            resp = transactions.with_context({'pre_auth_order': True}).sudo()._send_payment_request()
-            transactions.update({'invoice_ids': False}),
-            self.wizard_process_id.order_id.transaction_ids = [transactions.id]
-            payment.payment_transaction_id = transactions.id
-            payment.ref = transactions.reference or self.wizard_process_id.memo
-            if not self.wizard_process_id.card_save and not self.wizard_process_id.card_id:
-                self.wizard_process_id.payment_token_id.delete_payment_method()
-                self.wizard_process_id.partner_id.refresh_payment_methods()
-
-            context = dict()
-            eligible = False
-            if payment.payment_transaction_id.is_pay_method_eligible and payment.payment_transaction_id.is_zip_code_allowed:
-                eligible = True
-            context['message'] = 'Transaction has been successfully processed!'
-            context['default_is_ach'] = False if self.wizard_process_id.token_type == 'credit' else True
-            context['default_is_surcharge'] = True if self.order_id.partner_id.ebiz_profile_id.is_surcharge_enabled else False
-            context['default_is_eligible'] = eligible
-            context['default_surcharge_subtotal'] = payment.amount
-            context['default_surcharge_amount'] = payment.payment_transaction_id.surcharge_amt
-            context['default_surcharge_percentage'] = payment.payment_transaction_id.surcharge_percent
-            context['default_surcharge_total'] = payment.amount + float(
-                payment.payment_transaction_id.surcharge_amt)
-            context['default_currency_id'] = self.env.company.currency_id.id
-            context['default_partner_id'] = payment.payment_transaction_id.token_id.partner_id.name if payment.payment_transaction_id.token_id else payment.partner_id.name
-            context['default_transaction_type'] = 'Auth Only' if payment.payment_transaction_id.transaction_type=='pre_auth' else 'Sale'
-            context['default_surcharge_percent'] = str(payment.payment_transaction_id.surcharge_percent) +' %'
-            context['default_currency_id'] = payment.payment_transaction_id.currency_id.id
-            context['default_document_number'] = payment.payment_transaction_id.reference
-            context['default_reference_number'] = payment.payment_transaction_id.provider_reference
-            context['default_auth_code'] = payment.payment_transaction_id.ebiz_auth_code
-            display_name = payment.payment_transaction_id.token_id.get_encrypted_name() if payment.payment_transaction_id.token_id else payment.partner_id.name
-            context['default_payment_method'] = display_name
-            context['default_date_paid'] = payment.payment_transaction_id.last_state_change
-            context['default_subtotal'] = payment.payment_transaction_id.amount
-            context['default_avs_street'] = payment.ebiz_avs_street if payment.ebiz_avs_street else payment.payment_transaction_id.ebiz_avs_street
-            context['default_avs_zip_code'] = payment.ebiz_avs_zip if payment.ebiz_avs_zip else payment.payment_transaction_id.ebiz_avs_zip_code
-            context['default_cvv'] = payment.payment_transaction_id.ebiz_cvv_resp
-            return self.message_wizard(context)
-        else:
-            transactions = self.transaction_id
-            self.transaction_id.sudo()._set_authorized()
-            self.wizard_process_id.order_id.transaction_ids = [transactions.id]
-            self.transaction_id.payment_id.payment_transaction_id = transactions.id
-            self.transaction_id.payment_id.transaction_ref = transactions.reference or self.wizard_process_id.memo
-            if not self.wizard_process_id.card_save and not self.wizard_process_id.card_id:
-                self.wizard_process_id.payment_token_id.delete_payment_method()
-                self.wizard_process_id.partner_id.refresh_payment_methods()
-            context = dict()
-            eligible = False
-            if self.transaction_id.is_pay_method_eligible and self.transaction_id.is_zip_code_allowed:
-                eligible = True
-            context['message'] = 'Transaction has been successfully processed!'
-            context['default_is_ach'] = False if self.wizard_process_id.token_type == 'credit' else True
-            context['default_is_surcharge'] = True if self.order_id.partner_id.ebiz_profile_id.is_surcharge_enabled else False
-            context['default_is_eligible'] = eligible
-            context['default_surcharge_subtotal'] = self.transaction_id.payment_id.amount
-            context['default_surcharge_amount'] = self.transaction_id.payment_id.payment_transaction_id.surcharge_amt
-            context['default_surcharge_percentage'] = self.transaction_id.surcharge_percent
-            context['default_surcharge_total'] = self.transaction_id.payment_id.amount + float(
-                self.transaction_id.surcharge_amt)
-            context['default_currency_id'] = self.env.company.currency_id.id
-            
-            context['default_partner_id'] = self.transaction_id.token_id.partner_id.name if self.transaction_id.token_id else self.transaction_id.partner_id.name
-            context['default_transaction_type'] = 'Auth Only' if self.transaction_id.transaction_type=='pre_auth' else 'Sale'
-            context['default_surcharge_percent'] = str(self.transaction_id.surcharge_percent) +' %'
-            context['default_currency_id'] = self.transaction_id.currency_id.id
-            context['default_document_number'] = self.transaction_id.reference
-            context['default_reference_number'] = self.transaction_id.provider_reference
-            context['default_auth_code'] = self.transaction_id.ebiz_auth_code
-            display_name = self.transaction_id.token_id.get_encrypted_name() if self.transaction_id.token_id else self.transaction_id.partner_id.name
-            context['default_payment_method'] = display_name
-            context['default_date_paid'] = self.transaction_id.last_state_change
-            context['default_subtotal'] = self.transaction_id.amount
-            context['default_avs_street'] = self.transaction_id.payment_id.ebiz_avs_street if self.transaction_id.payment_id.ebiz_avs_street else self.transaction_id.ebiz_avs_street
-            context['default_avs_zip_code'] = self.transaction_id.payment_id.ebiz_avs_zip if self.transaction_id.payment_id.ebiz_avs_zip else self.transaction_id.ebiz_avs_zip_code
-            context['default_cvv'] = self.transaction_id.ebiz_cvv_resp
-            return self.message_wizard(context)
+        return context
 
     def show_void_wizard(self):
         return {
@@ -148,7 +137,7 @@ class WizardSaleOrderTransactionValidation(models.TransientModel):
             self.order_id.partner_id.sync_to_ebiz()
         method = self.env.ref('payment_ebizcharge_crm.payment_method_ebizcharge').id
         params = {
-            "payment_details": self.wizard_process_id.card_card_number,
+            "payment_details": 'XXXXXXXXXXXX%s' % self.wizard_process_id.card_card_number[-4:],
             "account_holder_name": self.wizard_process_id.card_account_holder_name,
             "payment_method_id": method,
             "card_number": self.wizard_process_id.card_card_number,
@@ -170,7 +159,6 @@ class WizardSaleOrderTransactionValidation(models.TransientModel):
         token.action_sync_token_to_ebiz()
         return token
 
-
     def void_transaction(self):
         self.transaction_id.sudo()._send_void_request()
         if self.transaction_id.state != 'cancel':
@@ -182,12 +170,6 @@ class WizardSaleOrderTransactionValidation(models.TransientModel):
             self.wizard_process_id.partner_id.refresh_payment_methods()
 
     def message_wizard(self, context):
-        """
-            Niaz Implementation:
-            Generic Function for successful message indication for the user to enhance user experience
-            param: Message string will be passed to context
-            return: wizard
-        """
         return {
             'name': 'Success',
             'view_type': 'form',

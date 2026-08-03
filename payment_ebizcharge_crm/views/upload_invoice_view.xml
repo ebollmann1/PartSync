@@ -1,24 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-
-        <data noupdate="1">
-            <record id="my_record_09" model="ebiz.upload.invoice">
-                <field name="add_filter">0</field>
-            </record>
-        </data>
-
         <record id="ebiz_upload_invoices_form_view" model="ir.ui.view">
             <field name="name">Upload Invoices</field>
             <field name="model">ebiz.upload.invoice</field>
             <field name="arch" type="xml">
-                <form create="0" js_class="ebiz_custom_form" string="Upload Sales Orders">
+                <form create="0" js_class="ebiz_custom_form" string="Upload Invoices">
                     <h1>Upload Invoices</h1>
                     <br/>
                     <group>
                         <group>
                             <label class="text-nowrap" for="ebiz_profile_id" string="EBizCharge Merchant Account"/>
-                            <field name="ebiz_profile_id" nolabel="1" required="1"/>
+                            <field name="ebiz_profile_id" nolabel="1" />
                         </group>
                         <group>
                             <button class="oe_highlight" name="create_default_records" string="Refresh" style="height: 25px;padding-top: 3px;" type="object"/>
@@ -27,14 +20,17 @@
                     </group>
                     <notebook colspan="3">
                         <page autofocus="autofocus" string="List">
-                            <field class="notebook_width" invisible="not invoice_lines" mode="list" name="invoice_lines" widget="upload_invoice_buttons">
-                                <list create="false" limit="15" no_open="1">
-                                    <field name="id" column_invisible="1"/>
+                            <field class="mt-3 notebook_width" invisible="not invoice_lines" mode="list" name="invoice_lines" widget="x2many_selection_actions">
+                                <list create="false" delete="false" limit="15" no_open="1">
+                                    <header>
+                                        <button class="btn-primary" name="upload_invoices" type="object" string="UPLOAD"/>
+                                        <button class="btn-primary" name="export_invoices" type="object" string="EXPORT"/>
+                                    </header>
+                                    <field column_invisible="1" name="id" readonly="1"/>
                                     <field column_invisible="1" name="currency_id" readonly="1"/>
                                     <field column_invisible="1" name="state" readonly="1"/>
                                     <field name="invoice" readonly="1" string="Number"/>
                                     <field name="partner_id" readonly="1" string="Customer"/>
-                                    <field name="customer_id" readonly="1" string="Customer ID"/>
                                     <field name="amount_untaxed" options="{'currency_field': 'currency_id'}" widget="monetary"/>
                                     <field name="amount_total_signed" options="{'currency_field': 'currency_id'}" string="Invoice Total" widget="monetary"/>
                                     <field name="amount_residual_signed" options="{'currency_field': 'currency_id'}" string="Balance Remaining" widget="monetary"/>
@@ -57,13 +53,16 @@
                             </div>
                         </page>
                         <page string="Logs">
-                            <field class="notebook_width" invisible="not logs_line" mode="list" name="logs_line" widget="upload_invoice_buttons">
-                                <list limit="15" no_open="1" string="Transaction Lines">
-                                    <field name="id" column_invisible="1"/>
+                            <field class="mt-3 notebook_width" invisible="not logs_line" mode="list" name="logs_line" widget="x2many_selection_actions">
+                                <list create="false" delete="false" limit="15" no_open="1" string="Transaction Lines">
+                                    <header>
+                                        <button class="btn-primary" name="export_logs" type="object" string="EXPORT"/>
+                                        <button class="btn-primary" name="clear_logs" type="object" string="CLEAR LOG"/>
+                                    </header>
+                                    <field column_invisible="1" name="id" readonly="1"/>
+                                    <field column_invisible="1" name="currency_id" readonly="1"/>
                                     <field name="name" readonly="1"/>
                                     <field name="partner_id" readonly="1"/>
-                                    <field name="customer_id" readonly="1"/>
-                                    <field column_invisible="1" name="currency_id" readonly="1"/>
                                     <field name="amount_untaxed" options="{'currency_field': 'currency_id'}" readonly="1" widget="monetary"/>
                                     <field name="amount_total_signed" options="{'currency_field': 'currency_id'}" readonly="1" widget="monetary"/>
                                     <field name="amount_residual_signed" options="{'currency_field': 'currency_id'}" readonly="1" widget="monetary"/>
@@ -90,12 +89,12 @@
             </field>
         </record>
 
-        <record id="action_upload_invoices_form" model="ir.actions.act_window">
+        <record id="action_upload_invoices_form" model="ir.actions.server">
             <field name="name">Upload Invoice</field>
-            <field name="res_model">ebiz.upload.invoice</field>
-            <field name="res_id" ref="my_record_09"/>
-            <field name="target">inline</field>
-            <field name="view_mode">form</field>
+            <field name="type">ir.actions.server</field>
+            <field name="model_id" ref="payment_ebizcharge_crm.model_ebiz_upload_invoice"/>
+            <field name="state">code</field>
+            <field name="code">action = model.action_open_upload_invoice()</field>
         </record>
 
         <menuitem action="action_upload_invoices_form" id="menu_ebiz_upload_invoice" name="Upload Invoices" parent="ebiz_upload_menu_main" sequence="3"/>

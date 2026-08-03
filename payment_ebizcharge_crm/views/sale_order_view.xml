@@ -19,11 +19,9 @@
                     <field invisible="1" name="done_transaction_ids"/>
                     <field invisible="1" name="is_invoice_paid"/>
                     <field invisible="1" name="request_amount"/>
-<!--                    <field name="website_id" invisible="1" groups="!website.group_multi_website"/>-->
+                    <field invisible="1" name="sale_enable_sur"/>
                     <button class="oe_highlight" invisible="ebiz_internal_id or ebiz_auto_sync or state in ['cancel']" name="sync_to_ebiz_ind" string="EBizCharge Upload" type="object"/>
-<!--                    <button name="pre_authorize" type="object" string="Register Payment" class="oe_highlight" invisible="ebiz_amount_residual == 0 or website_id != False or state in ['cancel'] or invoice_status in ['invoiced']"/>-->
-                    <button name="pre_authorize" type="object" string="Register Payment"
-                            class="oe_highlight"
+                    <button name="pre_authorize" type="object" string="Register Payment" class="oe_highlight"
                             invisible="ebiz_amount_residual == 0 and request_amount==0 or state in ['cancel'] or invoice_status in ['invoiced']"/>
                 </xpath>
                 <field name="partner_id" position="after">
@@ -33,9 +31,10 @@
                     <field name="ebiz_transaction_ref"/>
                     <field invisible="0" name="ebiz_amount_residual"/>
                 </group>
+                <!--Commented By Maqsood 20-Apr-2026 While Migration
                 <xpath expr="//button[@name='payment_action_capture']" position="attributes">
                     <attribute name="invisible">not authorized_transaction_ids or invoice_status in ['to invoice', 'no']</attribute>
-                </xpath>
+                </xpath>-->
             </field>
         </record>
 
@@ -98,7 +97,6 @@
             <field name="model">sale.advance.payment.inv</field>
             <field name="inherit_id" ref="sale.view_sale_advance_payment_inv"/>
             <field name="arch" type="xml">
-
                 <field name="count" position="after">
                     <field invisible="1" name="is_website_order"/>
                     <field invisible="1" name="is_pay_link"/>
@@ -106,13 +104,11 @@
 
                 <xpath expr="//group[@name='down_payment_specification']" position="after">
                     <group>
-                      <div invisible="not is_pay_link"  class="fa fa-info-circle text-nowrap"
-                       style="padding:10px;background-color:#E4D4E0;font-weight:bold;margin:2px;border-radius:4px;" >
+                      <div invisible="not is_pay_link" class="alert alert-info fw-bold" role="alert" style="max-width: fit-content;">
                        This sales order has an active payment link, converting it to an invoice will invalidate the link. Do you want to continue?                    </div>
                     </group>
                  </xpath>
 
-                
                 <field name="advance_payment_method" position="attributes">
                     <attribute name="readonly">is_website_order</attribute>
                 </field>
