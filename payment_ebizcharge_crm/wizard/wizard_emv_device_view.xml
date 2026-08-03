@@ -21,6 +21,7 @@
                 </form>
             </field>
         </record>
+
         <record id="emv_device_wizard_form_action" model="ir.actions.act_window">
             <field name="name">Configure Device</field>
             <field name="type">ir.actions.act_window</field>

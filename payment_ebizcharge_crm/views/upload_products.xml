@@ -1,13 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-
-        <data noupdate="1">
-            <record id="my_record_07" model="upload.products">
-                <field name="add_filter">0</field>
-            </record>
-        </data>
-
         <record id="form_view_action_upload_products" model="ir.ui.view">
             <field name="name">Upload Products</field>
             <field name="model">upload.products</field>
@@ -18,7 +11,7 @@
                     <group>
                         <group>
                             <label class="text-nowrap" for="ebiz_profile_id" string="EBizCharge Merchant Account"/>
-                            <field name="ebiz_profile_id" nolabel="1" required="1"/>
+                            <field name="ebiz_profile_id" nolabel="1"/>
                         </group>
                         <group>
                             <button class="oe_highlight" name="create_default_records" string="Refresh" style="height: 25px;padding-top: 3px;" type="object"/>
@@ -27,8 +20,12 @@
                     </group>
                     <notebook colspan="3">
                         <page autofocus="autofocus" string="List">
-                            <field class="notebook_width" invisible="not transaction_history_line" mode="list" name="transaction_history_line" widget="upload_product_buttons">
-                                <list limit="15" no_open="1" string="Products List">
+                            <field class="mt-3 notebook_width" invisible="not transaction_history_line" mode="list" name="transaction_history_line" widget="x2many_selection_actions">
+                                <list create="false" delete="false" limit="15" no_open="1" string="Products List">
+                                    <header>
+                                        <button class="btn-primary" name="upload_products" type="object" string="UPLOAD"/>
+                                        <button class="btn-primary" name="export_products" type="object" string="EXPORT"/>
+                                    </header>
                                     <field name="id" column_invisible="1"/>
                                     <field name="internal_reference"/>
                                     <field name="product_name"/>
@@ -54,8 +51,12 @@
                             </div>
                         </page>
                         <page string="Logs">
-                            <field class="notebook_width" invisible="not logs_line" mode="list" name="logs_line" widget="upload_product_buttons">
-                                <list limit="15" no_open="1" string="Products Logs">
+                            <field class="mt-3 notebook_width" invisible="not logs_line" mode="list" name="logs_line" widget="x2many_selection_actions">
+                                <list create="false" delete="false" limit="15" no_open="1" string="Products Logs">
+                                    <header>
+                                        <button class="btn-primary" name="export_logs" type="object" string="EXPORT"/>
+                                        <button class="btn-primary" name="clear_logs" type="object" string="CLEAR LOG"/>
+                                    </header>
                                     <field name="id" column_invisible="1"/>
                                     <field name="internal_reference"/>
                                     <field name="name"/>
@@ -85,15 +86,15 @@
             </field>
         </record>
 
-        <record id="action_upload_products" model="ir.actions.act_window">
+        <record id="action_upload_products_form" model="ir.actions.server">
             <field name="name">Upload Products</field>
-            <field name="res_model">upload.products</field>
-            <field name="res_id" ref="my_record_07"/>
-            <field name="target">inline</field>
-            <field name="view_mode">form,list</field>
+            <field name="type">ir.actions.server</field>
+            <field name="model_id" ref="payment_ebizcharge_crm.model_upload_products"/>
+            <field name="state">code</field>
+            <field name="code">action = model.action_open_upload_products()</field>
         </record>
 
-        <menuitem action="action_upload_products" id="menu_ebiz_upload_product_template" name="Upload Products" parent="ebiz_upload_menu_main" sequence="4"/>
+        <menuitem action="action_upload_products_form" id="menu_ebiz_upload_product_template" name="Upload Products" parent="ebiz_upload_menu_main" sequence="4"/>
 
     </data>
 </odoo>

@@ -4,10 +4,9 @@ from odoo import models, fields, api, _
 from odoo.exceptions import UserError, ValidationError
 from datetime import datetime
 import logging
+from ..tools import _year_selection_from_current, _month_selection
 
 _logger = logging.getLogger(__name__)
-
-from ..utils import strtobool
 
 
 class AccountPaymentRegister(models.TransientModel):
@@ -15,26 +14,14 @@ class AccountPaymentRegister(models.TransientModel):
 
     @api.model
     def year_selection(self):
-        today = fields.Date.today()
-        # year =  # replace 2000 with your a start year
-        year = today.year
-        max_year = today.year + 30
-        year_list = []
-        while year != max_year:  # replace 2030 with your end year
-            year_list.append((str(year), str(year)))
-            year += 1
-        return year_list
+        return _year_selection_from_current()
 
     @api.model
     def month_selection(self):
-        m_list = []
-        for i in range(1, 13):
-            m_list.append((str(i), str(i)))
-        return m_list
+        return _month_selection()
 
     def _get_transaction_command(self):
-        dep = ('Sale', 'Deposit')
-        return [dep]
+        return [('Sale', 'Deposit')]
 
     @api.depends('partner_id', 'partner_id.ebiz_profile_id')
     def _compute_required_sc(self):
@@ -63,11 +50,9 @@ class AccountPaymentRegister(models.TransientModel):
                 self.env.context.get('active_id')).partner_id.id
         elif 'active_ids' in self.env.context:
             if 'active_model' in self.env.context and self.env.context.get('active_model') == 'account.move.line':
-                if len(self.env['account.move.line'].browse(self.env.context['active_ids']).exists().move_id.partner_id.ids) > 1:
-                    return self.env['account.move.line'].browse(
-                        self.env.context['active_ids']).exists().move_id.partner_id[0].id
-                else:
-                    return self.env['account.move.line'].browse(self.env.context['active_ids']).exists().move_id.partner_id.id
+                lines = self.env['account.move.line'].browse(self.env.context['active_ids']).exists()
+                partners = lines.move_id.partner_id
+                return partners[0].id if len(partners.ids) > 1 else partners.id
             else:
                 return self.env['account.move'].browse(self.env.context.get('active_ids')[0]).exists().partner_id.id
         else:
@@ -105,13 +90,36 @@ class AccountPaymentRegister(models.TransientModel):
     ebiz_profile_id = fields.Many2one('ebizcharge.instance.config', string="Merchant Account", compute="_compute_required_sc")
     is_ebiz_profile = fields.Boolean()
     ebiz_sur_char = fields.Char(string='Surcharge Char')
-    is_surch_enable = fields.Boolean(string='Surcharge Enabled')
+    is_surch_enable = fields.Boolean(string='Surcharge Enabled', related='ebiz_profile_id.is_surcharge_enabled')
+    merchant_toggle_sur_per_txn = fields.Boolean(related='ebiz_profile_id.merchant_toggle_sur_per_txn')
+    enable_surcharge = fields.Boolean(string='Enable Surcharge', default=True, help='When enabled, a surcharge fee will be added to all eligible payments processed with a credit card.')
+
+    #Surcharge Percentage
+    def _default_surcharge_percentage(self):
+        active_id = self.env.context.get('active_id')
+        if self.env.context.get('main_model') == 'account.move' and active_id:
+            move_id = self.env['account.move'].browse(active_id).exists()
+            ebiz_profile_id = move_id.partner_id.ebiz_profile_id
+            surcharge_setting_resp = self.get_surcharge_details(ebiz_profile_id)
+            if surcharge_setting_resp and surcharge_setting_resp['IsSurchargeEnabled']:
+                return float(surcharge_setting_resp['SurchargePercentage'])
+        return 0
+
+    surcharge_percentage = fields.Float(string="Surcharge", default=_default_surcharge_percentage, readonly=True)
+    #Surcharge Fields for Save Card Tab
+    save_surcharge_percentage_amount = fields.Monetary(compute='_compute_save_surcharge_percentage_amount')
+    save_total_amount = fields.Monetary(string="Total Amount", compute='_compute_save_surcharge_percentage_amount')
+    save_is_eligible = fields.Boolean(compute='_compute_save_surcharge_percentage_amount', default=True)
+
+    # Surcharge Fields for New Card Tab
+    new_surcharge_percentage_amount = fields.Monetary(compute='_compute_new_surcharge_percentage_amount')
+    new_total_amount = fields.Monetary(string="Total Amount", compute='_compute_new_surcharge_percentage_amount')
+    new_is_eligible = fields.Boolean(compute='_compute_new_surcharge_percentage_amount', default=True)
+
     is_pay_link = fields.Boolean(string='Pay link')
         
     emv_device_id = fields.Many2one('ebizcharge.emv.device', string='EMV Device')
     is_emv_enabled = fields.Boolean(related='ebiz_profile_id.is_emv_enabled', )
-    
-
 
     @api.depends('journal_id', 'ebiz_profile_id')
     def check_if_merchant_needs_avs_validation(self):
@@ -142,6 +150,84 @@ class AccountPaymentRegister(models.TransientModel):
     def _compute_emails(self):
         if self.ebiz_send_receipt:
             self.ebiz_receipt_emails = self.partner_id.email
+
+    @api.onchange('enable_surcharge')
+    def _onchange_enable_surcharge(self):
+        self.line_ids.move_id.write({'inv_enable_sur': self.enable_surcharge})
+        self.new_surcharge_percentage_amount = 0.00
+        self.new_total_amount = self.amount
+        self.new_is_eligible = True
+        self.save_surcharge_percentage_amount = 0.00
+        self.save_total_amount = self.amount
+        self.save_is_eligible = True
+
+    @api.depends('amount', 'surcharge_percentage', 'card_card_number', 'card_avs_zip')
+    def _compute_new_surcharge_percentage_amount(self):
+        for record in self:
+            eligible_flag = True
+            check_all_for_surcharge = [record.card_card_number, record.card_avs_zip, record.enable_surcharge,
+                                       record.is_surch_enable, record.merchant_toggle_sur_per_txn]
+            if all(check_all_for_surcharge):
+                extra_params = {
+                    'cardNumber': record.card_card_number,
+                    'cardZipCode': record.card_avs_zip,
+                }
+                resp = self.get_surcharge_amount_new(extra_params_dict=extra_params)
+                if resp and resp['SurchargePercentage']:
+                    record.surcharge_percentage = float(resp['SurchargePercentage'])
+                if resp['IsSurchargeAllowedForZipCode'] and resp['IsSurchargeAllowedForPaymentMethod']:
+                    record.new_surcharge_percentage_amount = float(resp['SurchargeAmount']) if resp['IsSurchargeEnabled'] else 0.00
+                    record.new_total_amount = record.amount + record.new_surcharge_percentage_amount
+                    record.new_is_eligible = eligible_flag
+                    continue
+                else:
+                    eligible_flag = False
+            record.new_surcharge_percentage_amount = 0.00
+            record.new_total_amount = record.amount + record.new_surcharge_percentage_amount
+            record.new_is_eligible = eligible_flag
+
+    @api.depends('amount', 'surcharge_percentage', 'card_id')
+    def _compute_save_surcharge_percentage_amount(self):
+        for record in self:
+            eligible_flag = True
+            check_all_for_surcharge = [record.card_id, record.enable_surcharge, record.is_surch_enable,
+                                       record.merchant_toggle_sur_per_txn]
+            if all(check_all_for_surcharge):
+                extra_params = {
+                    'paymentMethodId': record.card_id.ebizcharge_profile,
+                    'cardZipCode': record.card_id.avs_zip,
+                }
+                resp = self.get_surcharge_amount_new(extra_params_dict=extra_params)
+                if resp and resp['SurchargePercentage']:
+                    record.surcharge_percentage = float(resp['SurchargePercentage'])
+                if resp['IsSurchargeAllowedForZipCode'] and resp['IsSurchargeAllowedForPaymentMethod']:
+                    record.save_surcharge_percentage_amount = float(resp['SurchargeAmount']) if resp[
+                        'IsSurchargeEnabled'] else 0.00
+                    record.save_total_amount = record.amount + record.save_surcharge_percentage_amount
+                    record.save_is_eligible = eligible_flag
+                    continue
+                else:
+                    eligible_flag = False
+            record.save_surcharge_percentage_amount = 0.00
+            record.save_total_amount = record.amount + record.save_surcharge_percentage_amount
+            record.save_is_eligible = eligible_flag
+
+    def get_surcharge_details(self, ebiz_profile_id):
+        ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=ebiz_profile_id)
+        return self.env.user.surcharge_details(ebiz)
+
+    def get_surcharge_amount_new(self, extra_params_dict):
+        ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=self.partner_id.ebiz_profile_id)
+        if ebiz:
+            params = {
+                'securityToken': ebiz._generate_security_json(),
+                'customerInternalId': self.partner_id.ebiz_internal_id,
+                'amount': self.amount,
+            }
+            params.update(extra_params_dict)
+            resp = ebiz.client.service.CalculateSurchargeAmount(**params)
+            return resp
+        return False
 
     @api.constrains('card_avs_zip')
     def card_avs_zip_length_id(self):
@@ -238,7 +324,7 @@ class AccountPaymentRegister(models.TransientModel):
             'receiptName': self.ebiz_receipt_template.name,
             'emailAddress': email,
         }
-        form_url = ebiz.client.service.EmailReceipt(**params)
+        ebiz.client.service.EmailReceipt(**params)
 
     @api.model
     def default_get(self, default_fields):
@@ -251,15 +337,12 @@ class AccountPaymentRegister(models.TransientModel):
                 instance = partner.ebiz_profile_id
                 is_profile = True
 
-            is_sur_able = False
             if instance:
-                if instance.is_surcharge_enabled and instance.surcharge_type_id == 'DailyDiscount':
-                    is_sur_able = True
                 rec.update({
                     'is_ebiz_profile': is_profile,
                     'ebiz_sur_char': instance.surcharge_terms,
                     'required_security_code': instance.verify_card_before_saving,
-                    'is_surch_enable': is_sur_able,
+                    'is_surch_enable': bool(instance.is_surcharge_enabled and instance.surcharge_type_id == 'DailyDiscount'),
                     'ebiz_profile_id': instance.id,
                 })
             rec.update({
@@ -299,8 +382,6 @@ class AccountPaymentRegister(models.TransientModel):
     def _reset_emv_device(self):
         if self.emv_device_id:
             self.token_type = 'emv_device'
-            #if self.ebiz_profile_id:
-            #    self.ebiz_profile_id.action_get_devices()
             self.ach_account = None
             self.ach_routing = None
             self.card_avs_street = None
@@ -309,7 +390,6 @@ class AccountPaymentRegister(models.TransientModel):
             self.security_code = None
             self.card_card_number = None
             self.card_id = None
-            self.card_card_number = None
             self.card_exp_year = None
             self.card_exp_month = None
             self.card_card_code = None
@@ -359,9 +439,6 @@ class AccountPaymentRegister(models.TransientModel):
     @api.depends('journal_id')
     def _compute_journal_code(self):
         for payment in self:
-            acquirer = self.env['payment.provider'].search(
-                [('company_id', '=', self.company_id.id), ('code', '=', 'ebizcharge')])
-            journal_id = acquirer.journal_id
             if payment.payment_method_line_id.code == 'ebizcharge' and payment.line_ids:
                 if payment.line_ids[0].move_id.move_type == "out_refund":
                     payment.journal_code = 'EBIZC:credit_note'
@@ -387,19 +464,16 @@ class AccountPaymentRegister(models.TransientModel):
             payments |= vals['payment']
 
         if self.payment_method_line_id.code=='ebizcharge':
-            if self.partner_id.ebiz_profile_id:
-                pass
-            else:
+            if not self.partner_id.ebiz_profile_id:
                 default_instance = self.env['ebizcharge.instance.config'].search(
                     [('is_valid_credential', '=', True), ('is_default', '=', True)], limit=1)
                 if default_instance:
-                    self.partner_id.update({
-                        'ebiz_profile_id': default_instance.id,
-                    })
+                    self.partner_id.update({'ebiz_profile_id': default_instance.id})
 
             responce_check = payments.sudo().with_context({
-                'active_id': self._context['active_id'] if 'active_id' in self._context else False,
-                'active_model': self._context['active_model'] if 'active_model' in self._context else False,
+                'active_id': self.env.context['active_id'] if 'active_id' in self.env.context else False,
+                'active_model': self.env.context['active_model'] if 'active_model' in self.env.context else False,
+                'active_ids': self.env.context.get('active_ids'),
                 'payment_data': {
                     'card_save': self.card_save,
                     'ach_save': self.bank_account_save,
@@ -435,6 +509,18 @@ class AccountPaymentRegister(models.TransientModel):
                 return responce_check
         else:
             payments.action_post()
+
+    @api.model
+    def _set_payment_memo(self, payments):
+        for payment in payments:
+            if payment.memo:
+                memo = payment.memo + ' ' + (self.line_ids.move_id.ref or '')
+            else:
+                memo = self.line_ids.move_id.name + ' ' + (self.line_ids.move_id.ref or '')
+            if payment.payment_token_id:
+                memo += ' ' + payment.payment_token_id.get_encrypted_name()
+            payment.memo = memo
+
 
     def _create_payments(self):
         if self.payment_method_line_id.code == 'ebizcharge' and 'from_transaction_history' not in self.env.context:
@@ -499,19 +585,20 @@ class AccountPaymentRegister(models.TransientModel):
                     })
     
             payments = self._init_payments(to_process, edit_mode=edit_mode)
+            payments.enable_surcharge = self.enable_surcharge
             responce_validation = self._post_payments(to_process, edit_mode=edit_mode)
+            if self.partner_id.ebiz_profile_id.payment_memo_setting == 'dn_pon_pm':
+                self._set_payment_memo(payments)
             self._reconcile_payments(to_process, edit_mode=edit_mode)
 
             if responce_validation and 'xml_id' in responce_validation:
                 if responce_validation['xml_id'] == 'payment_ebizcharge_crm.action_ebiz_transaction_validation_form':
                     return responce_validation
 
-            self._reconcile_payments(to_process, edit_mode=edit_mode)
-
             if responce_validation and 'res_model' in responce_validation and responce_validation['res_model'] == 'message.wizard':
                 for inv in payments.invoice_ids:
                     inv.sync_to_ebiz()
-                if self.ebiz_profile_id.is_surcharge_enabled:
+                if self.ebiz_profile_id.is_surcharge_enabled and self.enable_surcharge and any(inv.move_type == 'out_invoice' for inv in payments.invoice_ids):
                     eligible = False
                     if payments.payment_transaction_id.is_pay_method_eligible and payments.payment_transaction_id.is_zip_code_allowed:
                         eligible = True
@@ -531,9 +618,10 @@ class AccountPaymentRegister(models.TransientModel):
                 responce_validation['context']['default_is_ach'] = False if self.token_type == 'credit' else True
                 responce_validation['context']['default_partner_id'] = payments.payment_transaction_id.token_id.partner_id.name if payments.payment_transaction_id.token_id else self.partner_id.name
                 responce_validation['context']['default_transaction_type'] = 'Auth Only' if payments.payment_transaction_id.transaction_type=='pre_auth' else 'Sale'
-                responce_validation['context']['default_surcharge_percent'] = str(payments.payment_transaction_id.surcharge_percent) +' %'
+                responce_validation['context']['default_surcharge_percent'] = f"{payments.payment_transaction_id.surcharge_percent:.2f} %"
                 responce_validation['context']['default_currency_id'] = payments.payment_transaction_id.currency_id.id
-                responce_validation['context']['default_document_number'] = payments.payment_transaction_id.reference
+                document_number = self.line_ids.move_id.name
+                responce_validation['context']['default_document_number'] = document_number
                 responce_validation['context']['default_reference_number'] = payments.payment_transaction_id.provider_reference
                 responce_validation['context']['default_auth_code'] = payments.payment_transaction_id.ebiz_auth_code
                 display_name = payments.payment_transaction_id.token_id.get_encrypted_name() if payments.payment_transaction_id.token_id else self.partner_id.name
@@ -543,6 +631,7 @@ class AccountPaymentRegister(models.TransientModel):
                 responce_validation['context']['default_avs_street'] = payments.ebiz_avs_street
                 responce_validation['context']['default_avs_zip_code'] = payments.ebiz_avs_zip
                 responce_validation['context']['default_cvv'] = payments.payment_transaction_id.ebiz_cvv_resp
+                responce_validation['context']['default_enable_surcharge'] = self.enable_surcharge
                 return responce_validation
 
             return payments
@@ -565,9 +654,9 @@ class AccountPaymentRegister(models.TransientModel):
 
     def action_create_payments(self):
         for line in self:
-            if line.is_pay_link==True and line.line_ids:
+            if line.is_pay_link and line.line_ids:
                 move_ebiz = line.line_ids[0].move_id
-                if move_ebiz.payment_internal_id and line.partner_id.ebiz_profile_id and move_ebiz.payment_internal_id:
+                if move_ebiz.payment_internal_id and line.partner_id.ebiz_profile_id:
                     ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=line.partner_id.ebiz_profile_id)
                     received_payments = ebiz.client.service.DeleteEbizWebFormPayment(**{
                         'securityToken': ebiz._generate_security_json(),
@@ -616,16 +705,20 @@ class AccountPaymentRegister(models.TransientModel):
                         'price_unit': line.price_unit,
                         'price_subtotal': line.price_subtotal,
                     }))
+                payment_memo_setting = self.ebiz_profile_id.payment_memo_setting
+                doc_number = self.line_ids[0].move_id.name
+                if payment_memo_setting == 'dn_pon_pm':
+                    doc_number = " ".join(part for part in [doc_number, self.line_ids[0].move_id.ref] if part)
                 device_value = {
                     'devicekey': self.emv_device_id.source_key,
                     'pin': self.ebiz_profile_id.pin,
                     'journal_id': self.journal_id.id,
                     'invoice_id': self.line_ids[0].move_id.id,
-                    'email_sent': True if self.ebiz_send_receipt else False, 
+                    'email_sent': bool(self.ebiz_send_receipt),
                     'payment_date': self.payment_date,
-                    'invoice': self.communication,
+                    'invoice': doc_number,
                     'command': 'Credit'  if self.line_ids[0].move_id.move_type=='out_refund' else  self.transaction_command,
-                    "ponum": self.communication,
+                    "ponum": self.line_ids[0].move_id.ref or self.line_ids[0].move_id.name,
                     "amount": self.amount,
                     "orderid": self.communication,
                     "partner_id": line.partner_id.id,
@@ -662,7 +755,7 @@ class AccountPaymentRegister(models.TransientModel):
                 if payments and 'res_model' in payments and payments['res_model'] == 'message.wizard':
                     return payments
 
-                if self._context.get('dont_redirect_to_payments'):
+                if self.env.context.get('dont_redirect_to_payments'):
                     return True
 
                 action = {

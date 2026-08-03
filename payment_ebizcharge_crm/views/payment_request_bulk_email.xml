@@ -23,20 +23,29 @@
                         </group>
                     </group>
                     <br/>
-                    <button class="oe_highlight" name="search_transaction" string="Refresh" type="object"/>
+                    <button class="oe_highlight" name="regenerate_line_ids" string="Refresh" type="object"/>
                     <br/><br/>
                     <notebook colspan="3">
                         <page string="Send New">
-                            <field class="notebook_width" invisible="not transaction_history_line" mode="list" name="transaction_history_line" widget="email_pay_invoices">
+                            <field class="notebook_width" invisible="not transaction_history_line" mode="list" name="transaction_history_line" widget="x2many_selection_actions">
                                 <list create="false" delete="false" limit="15" no_open="1" string="Transaction Lines">
+                                    <header>
+                                        <button class="btn-primary" name="send_email_pay_wizard" type="object" string="SEND EMAIL PAY REQUEST"/>
+                                        <field name="enable_surcharge_for_all" widget="boolean_toggle" string="Enable Surcharge for ALL"
+                                               invisible="not parent.is_surcharge_toggle_visible"/>
+                                    </header>
                                     <field column_invisible="1" name="id"/>
                                     <field column_invisible="1" name="invoice_id"/>
+                                    <field column_invisible="1" name="merchant_toggle_sur_per_txn"/>
+                                    <field column_invisible="1" name="is_surcharge_enabled"/>
+                                    <field column_invisible="1" name="is_surcharge_toggle_visible"/>
                                     <field name="name" readonly="1"/>
-                                    <field name="customer_name" readonly="1"/>
                                     <field name="customer_id" readonly="1"/>
                                     <field name="amount" options="{'currency_field': 'currency_id'}" readonly="1" widget="monetary"/>
                                     <field name="amount_due" options="{'currency_field': 'currency_id'}" readonly="1" widget="monetary"/>
-                                    <field name="invoice_date" readonly="1"/>
+                                    <field name="inv_enable_sur" widget="boolean_toggle"
+                                           column_invisible="not parent.is_surcharge_toggle_visible"/>
+                                    <field name="invoice_date" readonly="1" />
                                     <field name="invoice_due_date" readonly="1"/>
                                     <field name="email_id" readonly="1"/>
                                 </list>
@@ -54,13 +63,16 @@
                             </div>
                         </page>
                         <page string="Pending Requests">
-                            <field class="notebook_width" invisible="not transaction_history_line_pending" mode="list" name="transaction_history_line_pending" widget="email_pay_invoices">
+                            <field class="notebook_width" invisible="not transaction_history_line_pending" mode="list" name="transaction_history_line_pending" widget="x2many_selection_actions">
                                 <list create="false" delete="false" limit="15" no_open="1" string="Transaction Lines">
+                                    <header>
+                                        <button class="btn-primary" name="resend_email" type="object" string="RESEND"/>
+                                        <button class="btn-primary" name="delete_invoice" type="object" string="REMOVE FROM LIST"/>
+                                    </header>
                                     <field column_invisible="1" name="currency_id" readonly="1"/>
                                     <field column_invisible="1" name="invoice_id"/>
                                     <field column_invisible="1" name="id"/>
                                     <field name="name" readonly="1"/>
-                                    <field name="customer_name" readonly="1"/>
                                     <field name="customer_id" readonly="1"/>
                                     <field name="amount" options="{'currency_field': 'currency_id'}" readonly="1" widget="monetary"/>
                                     <field name="amount_due" options="{'currency_field': 'currency_id'}" readonly="1" widget="monetary"/>
@@ -87,12 +99,15 @@
                             </div>
                         </page>
                         <page string="Received Email Payments">
-                            <field class="notebook_width" invisible="not transaction_history_line_received" mode="list" name="transaction_history_line_received" widget="email_pay_invoices">
+                            <field class="notebook_width" invisible="not transaction_history_line_received" mode="list" name="transaction_history_line_received" widget="x2many_selection_actions">
                                 <list create="false" delete="false" limit="15" no_open="1" string="Transaction Lines">
+                                    <header>
+                                        <button class="btn-primary" name="mark_applied" type="object" string="APPLY"/>
+                                        <button class="btn-primary" name="delete_invoice_received" type="object" string="REMOVE FROM LIST"/>
+                                    </header>
                                     <field column_invisible="1" name="invoice_id"/>
                                     <field name="payment_request_date_time" readonly="1"/>
                                     <field name="name" readonly="1"/>
-                                    <field name="customer_name" readonly="1"/>
                                     <field name="customer_id" readonly="1"/>
                                     <field name="amount" options="{'currency_field': 'currency_id'}" readonly="1" widget="monetary"/>
                                     <field name="paid_amount" options="{'currency_field': 'currency_id'}" readonly="1" widget="monetary"/>
@@ -118,21 +133,15 @@
             </field>
         </record>
 
-        <data noupdate="1">
-            <record id="my_record_03" model="payment.request.bulk.email">
-                <field name="add_filter">0</field>
-            </record>
-        </data>
-
-        <record id="payment_bulk_request" model="ir.actions.act_window">
+        <record id="payment_bulk_request_email_action" model="ir.actions.server">
             <field name="name">Email Pay for Invoices</field>
-            <field name="res_model">payment.request.bulk.email</field>
-            <field name="res_id" ref="my_record_03"/>
-            <field name="target">inline</field>
-            <field name="view_mode">form,list</field>
+            <field name="type">ir.actions.server</field>
+            <field name="model_id" ref="payment_ebizcharge_crm.model_payment_request_bulk_email"/>
+            <field name="state">code</field>
+            <field name="code">action = model.action_open_email_pay_invoices()</field>
         </record>
 
-        <menuitem action="payment_bulk_request" id="request_payment_view_email" name="Email Pay for Invoices" parent="ebiz_email_template_menu_main" sequence="1"/>
+        <menuitem action="payment_bulk_request_email_action" id="request_payment_view_email" name="Email Pay for Invoices" parent="ebiz_email_template_menu_main" sequence="1"/>
 
     </data>
 </odoo>

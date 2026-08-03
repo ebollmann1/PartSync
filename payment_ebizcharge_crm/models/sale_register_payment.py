@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
-from typing import Dict, List
-
 from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError, UserError
 import logging
 from datetime import datetime
-from ..utils import strtobool
-
+from ..tools import strtobool, _year_selection_from_current, _month_selection, _parse_avs_result
+from markupsafe import Markup
 _logger = logging.getLogger(__name__)
 
 
@@ -17,28 +15,19 @@ class CustomRegisterPayment(models.Model):
     def _default_template(self):
         payment_acq = self.env['payment.provider'].search(
             [('company_id', '=', self.env.company.id), ('code', '=', 'ebizcharge')])
-        if payment_acq:
-            return payment_acq.journal_id.id
-        else:
-            return None
-            
+        return payment_acq.journal_id.id if payment_acq else None
+
     def _default_transaction(self):
-        if not self.ebiz_profile_id.is_emv_pre_auth:
-            return 'deposit'
-        else:
-            return 'pre_auth'
+        return 'pre_auth' if self.ebiz_profile_id.is_emv_pre_auth else 'deposit'
 
     def _default_method_line_ebiz(self):
         payment_acq = self.env['payment.provider'].search(
             [('company_id', '=', self.env.company.id), ('code', '=', 'ebizcharge')])
-        if payment_acq:
-            ebiz_method = self.env['account.payment.method.line'].search([('journal_id','=', payment_acq.journal_id.id),('payment_method_id.code','=','ebizcharge')], limit=1)
-            if ebiz_method:
-                return ebiz_method.id
-            else:
-                return None
-        else:
+        if not payment_acq:
             return None
+        ebiz_method = self.env['account.payment.method.line'].search(
+            [('journal_id', '=', payment_acq.journal_id.id), ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
+        return ebiz_method.id if ebiz_method else None
 
     journal_id = fields.Many2one('account.journal', string='Journal', default=_default_template)
     transaction_type = fields.Selection([
@@ -61,31 +50,44 @@ class CustomRegisterPayment(models.Model):
     ebiz_send_receipt = fields.Boolean(string='Email Receipt', default=True)
     ebiz_receipt_emails = fields.Char(string='Email list', help="Comma Separated Email list( email1,email2)")
     ebiz_sur_char = fields.Char(string=' Surcharge Char')
-    is_surch_enable = fields.Boolean(string=' Surcharge Enabled')
+    is_surch_enable = fields.Boolean(string=' Surcharge Enabled', related='ebiz_profile_id.is_surcharge_enabled')
+    merchant_toggle_sur_per_txn = fields.Boolean(related='ebiz_profile_id.merchant_toggle_sur_per_txn')
+    enable_surcharge = fields.Boolean(string='Enable Surcharge', default=True, help='When enabled, a surcharge fee will be added to all eligible payments processed with a credit card.')
+
+    def _default_surcharge_percentage(self):
+        active_id = self.env.context.get('active_id')
+        if self.env.context.get('active_model') == 'sale.order' and active_id:
+            sale_order_id = self.env['sale.order'].browse(active_id).exists()
+            ebiz_profile_id = sale_order_id.partner_id.ebiz_profile_id
+            surcharge_setting_resp = self.get_surcharge_details(ebiz_profile_id)
+            if surcharge_setting_resp and surcharge_setting_resp['IsSurchargeEnabled']:
+                return float(surcharge_setting_resp['SurchargePercentage'])
+        return 0
+
+    surcharge_percentage = fields.Float(string="Surcharge", default=_default_surcharge_percentage, readonly=True)
+    save_surcharge_percentage_amount = fields.Monetary(compute='_compute_save_surcharge_percentage_amount')
+    save_total_amount = fields.Monetary(string="Total Amount", compute='_compute_save_surcharge_percentage_amount')
+    save_is_eligible = fields.Boolean(compute='_compute_save_surcharge_percentage_amount', default=True)
+
+    new_surcharge_percentage_amount = fields.Monetary(compute='_compute_new_surcharge_percentage_amount')
+    new_total_amount = fields.Monetary(string="Total Amount", compute='_compute_new_surcharge_percentage_amount')
+    new_is_eligible = fields.Boolean(compute='_compute_new_surcharge_percentage_amount', default=True)
+
     is_over_deposit = fields.Boolean(string="Over Deposit")
     is_pay_link = fields.Boolean(string='Is Pay Link')
 
-    payment_method_line_id = fields.Many2one('account.payment.method.line', string='Payment Method' , default=_default_method_line_ebiz)
-
-    ebiz_profile_id = fields.Many2one('ebizcharge.instance.config')
-
-
-
-        
+    payment_method_line_id = fields.Many2one('account.payment.method.line', string='Payment Method', default=_default_method_line_ebiz)
     emv_device_id = fields.Many2one('ebizcharge.emv.device', string='EMV Device')
-    
-    is_emv_enabled = fields.Boolean(related='ebiz_profile_id.is_emv_enabled')    
-    
-    
+
+    is_emv_enabled = fields.Boolean(related='ebiz_profile_id.is_emv_enabled')
+
     @api.onchange('emv_device_id')
     def _reset_card_id_and_ach_account(self):
         if self.emv_device_id:
             self.token_type = 'emv_device'
             self.is_over_deposit = self.ebiz_profile_id.is_emv_pre_auth
             if not self.ebiz_profile_id.is_emv_pre_auth:
-                self.transaction_type='deposit'            
-            #if self.ebiz_profile_id:
-            #    self.ebiz_profile_id.action_get_devices()    
+                self.transaction_type = 'deposit'
             self.ach_account = None
             self.card_avs_street = None
             self.card_avs_zip = None
@@ -96,39 +98,103 @@ class CustomRegisterPayment(models.Model):
             self.card_card_number = None
             self.card_exp_year = None
             self.card_exp_month = None
-            self.card_card_code = None  
+            self.card_card_code = None
         else:
-            self.is_over_deposit = True      
+            self.is_over_deposit = True
 
     @api.onchange('journal_id')
     def _compute_journal_code(self):
-        acquirer = self.env['payment.provider'].search(
-            [('company_id', '=', self.env.company.id), ('code', '=', 'ebizcharge')])
-        journal_id = acquirer.journal_id
         for payment in self:
             if payment.payment_method_line_id.code == 'ebizcharge':
                 payment.journal_code = "EBIZC"
             else:
                 payment.journal_code = "other"
 
+    @api.onchange('enable_surcharge')
+    def _onchange_enable_surcharge(self):
+        self.order_id.write({'sale_enable_sur': self.enable_surcharge})
+        self.new_surcharge_percentage_amount = 0.00
+        self.new_total_amount = self.amount
+        self.new_is_eligible = True
+        self.save_surcharge_percentage_amount = 0.00
+        self.save_total_amount = self.amount
+        self.save_is_eligible = True
+
+    @api.depends('amount', 'surcharge_percentage', 'card_card_number', 'card_avs_zip')
+    def _compute_new_surcharge_percentage_amount(self):
+        for record in self:
+            eligible_flag = True
+            check_all_for_surcharge = [record.card_card_number, record.card_avs_zip, record.enable_surcharge,
+                                       record.is_surch_enable, record.merchant_toggle_sur_per_txn]
+            if all(check_all_for_surcharge):
+                extra_params = {
+                    'cardNumber': record.card_card_number,
+                    'cardZipCode': record.card_avs_zip,
+                }
+                resp = self.get_surcharge_amount_new(extra_params_dict=extra_params)
+                if resp and resp['SurchargePercentage']:
+                    record.surcharge_percentage = float(resp['SurchargePercentage'])
+                if resp['IsSurchargeAllowedForZipCode'] and resp['IsSurchargeAllowedForPaymentMethod']:
+                    record.new_surcharge_percentage_amount = float(resp['SurchargeAmount']) if resp[
+                        'IsSurchargeEnabled'] else 0.00
+                    record.new_total_amount = record.amount + record.new_surcharge_percentage_amount
+                    record.new_is_eligible = eligible_flag
+                    continue
+                else:
+                    eligible_flag = False
+            record.new_surcharge_percentage_amount = 0.00
+            record.new_total_amount = record.amount + record.new_surcharge_percentage_amount
+            record.new_is_eligible = eligible_flag
+
+    def get_surcharge_details(self, ebiz_profile_id):
+        ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=ebiz_profile_id)
+        return self.env.user.surcharge_details(ebiz)
+
+    @api.depends('amount', 'surcharge_percentage', 'card_id')
+    def _compute_save_surcharge_percentage_amount(self):
+        for record in self:
+            eligible_flag = True
+            check_all_for_surcharge = [record.card_id, record.enable_surcharge, record.is_surch_enable,
+                                       record.merchant_toggle_sur_per_txn]
+            if all(check_all_for_surcharge):
+                extra_params = {
+                    'paymentMethodId': record.card_id.ebizcharge_profile,
+                    'cardZipCode': record.card_id.avs_zip,
+                }
+                resp = self.get_surcharge_amount_new(extra_params_dict=extra_params)
+                if resp and resp['SurchargePercentage']:
+                    record.surcharge_percentage = float(resp['SurchargePercentage'])
+                if resp['IsSurchargeAllowedForZipCode'] and resp['IsSurchargeAllowedForPaymentMethod']:
+                    record.save_surcharge_percentage_amount = float(resp['SurchargeAmount']) if resp[
+                        'IsSurchargeEnabled'] else 0.00
+                    record.save_total_amount = record.amount + record.save_surcharge_percentage_amount
+                    record.save_is_eligible = eligible_flag
+                    continue
+                else:
+                    eligible_flag = False
+            record.save_surcharge_percentage_amount = 0.00
+            record.save_total_amount = record.amount + record.save_surcharge_percentage_amount
+            record.save_is_eligible = eligible_flag
+
+    def get_surcharge_amount_new(self, extra_params_dict):
+        ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=self.partner_id.ebiz_profile_id)
+        if ebiz:
+            params = {
+                'securityToken': ebiz._generate_security_json(),
+                'customerInternalId': self.partner_id.ebiz_internal_id,
+                'amount': self.amount,
+            }
+            params.update(extra_params_dict)
+            return ebiz.client.service.CalculateSurchargeAmount(**params)
+        return False
+
     @api.model
     def year_selection(self):
-        today = fields.Date.today()
-        # year =  # replace 2000 with your a start year
-        year = today.year
-        max_year = today.year + 30
-        year_list = []
-        while year != max_year:  # replace 2030 with your end year
-            year_list.append((str(year), str(year)))
-            year += 1
-        return year_list
+        return _year_selection_from_current()
 
     @api.model
     def month_selection(self):
-        m_list = []
-        for i in range(1, 13):
-            m_list.append((str(i), str(i)))
-        return m_list
+        return _month_selection()
 
     ach_id = fields.Many2one('payment.token', string='Saved Bank Account')
     ach_functionality_hide = fields.Boolean(string='ach functionality')
@@ -256,7 +322,6 @@ class CustomRegisterPayment(models.Model):
             self.ach_id = None
             self.emv_device_id = None
             self.is_over_deposit = True
-            #self.transaction_type = self.ebiz_profile_id.transaction_type
             self.security_code = None
             self.card_id = None
             self.card_card_number = None
@@ -301,12 +366,11 @@ class CustomRegisterPayment(models.Model):
 
     @api.model
     def default_get(self, default_fields):
-        rec = super(CustomRegisterPayment, self).default_get(default_fields)
+        rec = super().default_get(default_fields)
         if 'amount' in rec:
-            partner = self.env['res.partner'].browse(self._context['partner_id'])
-            is_sur_able = False
-            if partner.ebiz_profile_id.is_surcharge_enabled and partner.ebiz_profile_id.surcharge_type_id == 'DailyDiscount':
-                is_sur_able = True
+            partner = self.env['res.partner'].browse(self.env.context['partner_id'])
+            is_sur_able = (partner.ebiz_profile_id.is_surcharge_enabled
+                           and partner.ebiz_profile_id.surcharge_type_id == 'DailyDiscount')
             rec.update({
                 'sub_partner_id': partner,
                 'ebiz_sur_char': partner.ebiz_profile_id.surcharge_terms,
@@ -318,8 +382,18 @@ class CustomRegisterPayment(models.Model):
                 'ebiz_profile_id': partner.ebiz_profile_id.id,
                 'transaction_type': partner.ebiz_profile_id.transaction_type,
             })
-            partner.with_context({'donot_sync': True}).ebiz_get_payment_methods()
         return rec
+
+    @api.model
+    def _set_payment_memo(self, payments):
+        for payment in payments:
+            if payment.memo:
+                memo = " ".join(val for val in [payment.memo, self.order_id.client_order_ref] if val)
+            else:
+                memo = " ".join(val for val in [self.order_id.name, self.order_id.client_order_ref] if val)
+            if payment.payment_token_id:
+                memo += ' ' + payment.payment_token_id.get_encrypted_name()
+            payment.memo = memo
 
     def process(self):
         if not self.payment_method_line_id:
@@ -331,30 +405,26 @@ class CustomRegisterPayment(models.Model):
 
         if self.order_id.save_payment_link:
             ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=self.order_id.partner_id.ebiz_profile_id)
-            received_payments = ebiz.client.service.DeleteEbizWebFormPayment(**{
+            ebiz.client.service.DeleteEbizWebFormPayment(**{
                 'securityToken': ebiz._generate_security_json(),
                 'paymentInternalId': self.order_id.payment_internal_id,
             })
-            message_log = 'EBizCharge Payment Link invalidated: ' + str(self.order_id.save_payment_link)
-            self.order_id.message_post(body=message_log)
-            self.order_id.request_amount = 0
-            self.order_id.last_request_amount = 0
-            self.order_id.save_payment_link = False
+            self.order_id.message_post(
+                body=Markup(
+                    'EBizCharge Payment Link invalidated: <a href="%s" target="_blank">%s</a>' % (
+                        self.order_id.save_payment_link, self.order_id.save_payment_link)
+                ),
+                message_type="comment",
+            )
+            self.order_id.write({'request_amount': 0, 'last_request_amount': 0, 'save_payment_link': False})
 
         if not self.sub_partner_id.ebiz_internal_id:
             self.sub_partner_id.sync_to_ebiz()
 
-        order = self.env['sale.order'].search([('id', '=', self.env.context.get('active_id'))])
-        # if self.amount > order.amount_total:
-        #     product = self.env['sale.order.line'].create({
-        #         'order_id': order.id,
-        #         'product_id': self.env.ref('payment_ebizcharge.default_ebizcharge_product').sudo().id,
-        #         'product_uom_qty': 1,
-        #         'price_unit': self.amount - order.amount_total,
-        #     })
-        card_resp = None
         if not self.order_id:
-            self.order_id = order
+            self.order_id = self.env['sale.order'].search(
+                [('id', '=', self.env.context.get('active_id'))], limit=1)
+
         if self.ebiz_send_receipt:
             partner_ebiz_profile_id = self.order_id.partner_id.ebiz_profile_id
             if partner_ebiz_profile_id and not partner_ebiz_profile_id.use_econnect_transaction_receipt:
@@ -363,215 +433,192 @@ class CustomRegisterPayment(models.Model):
 
         if not self.order_id.ebiz_internal_id:
             self.order_id.sync_to_ebiz()
-        merchant_card_verification = False
-        use_full_amount_for_avs = False
-        if self.partner_id.ebiz_profile_id:
-            merchant_card_verification = self.partner_id.ebiz_profile_id.merchant_card_verification
-            use_full_amount_for_avs = self.partner_id.ebiz_profile_id.use_full_amount_for_avs
+
+        profile = self.partner_id.ebiz_profile_id
+        use_full_amount_for_avs = profile.use_full_amount_for_avs if profile else False
 
         if self.token_type == 'credit':
-            if not self.card_id:
-                resp, avs_result, card_resp = self.run_new_card_flow()
-                if resp and type(resp) == bool:
-                    token_id = self.create_credit_card_payment_method().id
-                    self.payment_token_id = token_id
-                else:
-                    return resp
-            else:
-                self.payment_token_id = self.card_id
-                if strtobool(use_full_amount_for_avs):
-                    self.full_amount = True
-                else:
-                    card_resp = self.validate_card_runcustomertransaction()
-                    avs_result = self.get_avs_result(card_resp)
-                    if all([x == 'Match' for x in avs_result]) and card_resp['ResultCode'] == 'A':
-                        pass
-                    else:
-                        return self.show_payment_response(card_resp, bypass_newcard_avs=True, saved_avs_card=True,
-                                                          ebizcharge_profile=self.payment_token_id.ebizcharge_profile)
-            if not self.full_amount:
-                avs_result = self.get_avs_result(card_resp)
-                """If merchant has full amount avs validation setting on
-                then following code will run avs or proceed with the transaction as usual"""
-                if card_resp['ResultCode'] == 'A':
-                    "on successful invoice add payment on the invoice"
-                    proceed = False
-                    "full_amount will only be set true if the transaction is with new card so it will check for avs"
-                    if self.full_amount:
-                        if all([x == 'Match' for x in avs_result]):
-                            proceed = True
-                    else:
-                        proceed = True
-
-                    if proceed:
-                        payment = self.action_create_payment()
-                        transactions = payment._create_payment_transaction()
-                        transactions.write({
-                            'payment_id': payment.id,
-                            'sale_order_ids': [self.order_id.id],
-                            'invoice_ids': False,
-                            'reference': self.order_id.name,
-                            'transaction_type': self.transaction_type,
-                        })
-                        resp = transactions.with_context({'pre_auth_order': True})._send_payment_request()
-                        transactions.update({
-                            'invoice_ids': False,
-                        })
-                        avs_result = self.get_avs_result(resp)
-                        if all([x == 'Match' for x in avs_result]) and resp['ResultCode'] == 'A':
-                            pass
-                        else:
-                            return self.with_context(
-                                {'transaction_id': transactions.id, 'full_amount': True}).show_payment_response(resp)
-
-                        order.transaction_ids = [transactions.id]
-                        payment.payment_transaction_id = transactions.id
-                        payment.transaction_ref = transactions.reference or self.memo
-                        if not self.card_save and not self.card_id:
-                            self.payment_token_id.delete_payment_method()
-                            self.partner_id.refresh_payment_methods()
-                        context = self.action_check_surcharge(payment.payment_transaction_id)
-                        return self.message_wizard(context)
-                    else:
-                        if merchant_card_verification:
-                            return self.show_payment_response(card_resp,
-                                                              customer_token=self.payment_token_id.partner_id.ebizcharge_customer_token,
-                                                              payment_method_id=self.payment_token_id.ebizcharge_profile)
-
-                        elif self.card_id and not self.new_card:
-                            return self.show_payment_response(card_resp, bypass_newcard_avs=True)
-                        else:
-                            return self.show_payment_response(card_resp)
-                else:
-                    return self.show_payment_response(card_resp)
-            else:
-                payment = self.action_create_payment()
-                transactions = payment._create_payment_transaction()
-                transactions.write({
-                    'payment_id': payment.id,
-                    'sale_order_ids': [self.order_id.id],
-                    'invoice_ids': False,
-                    'reference': self.order_id.name,
-                    'transaction_type': self.transaction_type,
-                })
-                resp = transactions.with_context({'full_amount': True, 'pre_auth_order': True})._send_payment_request()
-                transactions.update({
-                    'invoice_ids': False,
-                })
-                avs_result = self.get_avs_result(resp)
-                if all([x == 'Match' for x in avs_result]) and resp['ResultCode'] == 'A':
-                    pass
-                else:
-                    return self.with_context(
-                        {'transaction_id': transactions.id, 'full_amount': True}).show_payment_response(resp)
-                order.transaction_ids = [transactions.id]
-                payment.payment_transaction_id = transactions.id
-                payment.transaction_ref = transactions.reference or self.memo
-                transactions._set_authorized()
-                if not self.card_save and not self.card_id:
-                    self.payment_token_id.delete_payment_method()
-                    self.partner_id.refresh_payment_methods()
-                context = self.action_check_surcharge(transactions)
-                return self.message_wizard(context)
+            return self._process_credit(use_full_amount_for_avs)
         elif self.token_type == 'ach':
-            if not self.ach_id:
-                token_id = self.create_bank_account().id
-                self.payment_token_id = token_id
-            else:
-                self.payment_token_id = self.ach_id.id
+            return self._process_ach()
+        elif self.token_type == 'emv_device' and self.emv_device_id:
+            return self._process_emv_device()
+        else:
+            raise ValidationError(_('Please select any payment method [Credit Card/Bank Account]!'))
 
+    def _process_credit(self, use_full_amount_for_avs):
+        card_resp = None
+        if not self.card_id:
+            resp, avs_result, card_resp = self.run_new_card_flow()
+            if resp and isinstance(resp, bool):
+                self.payment_token_id = self.create_credit_card_payment_method().id
+            else:
+                return resp
+        else:
+            self.payment_token_id = self.card_id
+            if strtobool(use_full_amount_for_avs):
+                self.full_amount = True
+            else:
+                card_resp = self.validate_card_runcustomertransaction()
+                avs_result = self.get_avs_result(card_resp)
+                if not (all(x == 'Match' for x in avs_result) and card_resp['ResultCode'] == 'A'):
+                    return self.show_payment_response(card_resp, bypass_newcard_avs=True, saved_avs_card=True,
+                                                      ebizcharge_profile=self.payment_token_id.ebizcharge_profile)
+
+        if not self.full_amount:
+            avs_result = self.get_avs_result(card_resp)
+            if card_resp['ResultCode'] != 'A':
+                return self.show_payment_response(card_resp)
             payment = self.action_create_payment()
+            payment.enable_surcharge = self.enable_surcharge
             transactions = payment._create_payment_transaction()
             transactions.write({
                 'payment_id': payment.id,
                 'sale_order_ids': [self.order_id.id],
-                'reference': self.order_id.name,
                 'invoice_ids': False,
                 'transaction_type': self.transaction_type,
             })
             resp = transactions.with_context({'pre_auth_order': True})._send_payment_request()
-            transactions.update({
-                'invoice_ids': False,
-            })
-            if not self.bank_account_save and not self.ach_id:
+            transactions.write({'invoice_ids': False})
+            avs_result = self.get_avs_result(resp)
+            if not (all(x == 'Match' for x in avs_result) and resp['ResultCode'] == 'A'):
+                return self.with_context(
+                    {'transaction_id': transactions.id, 'full_amount': True}).show_payment_response(resp)
+            self.order_id.transaction_ids = [transactions.id]
+            payment.payment_transaction_id = transactions.id
+            payment.transaction_ref = transactions.reference or self.memo
+            if self.partner_id.ebiz_profile_id.payment_memo_setting == 'dn_pon_pm':
+                self._set_payment_memo(payment)
+            if not self.card_save and not self.card_id:
                 self.payment_token_id.delete_payment_method()
                 self.partner_id.refresh_payment_methods()
             context = self.action_check_surcharge(payment.payment_transaction_id)
             return self.message_wizard(context)
-        elif self.token_type == 'emv_device' and self.emv_device_id:
-            line_list = []
-            emv_command = 'sale'
-            if self.transaction_type == 'pre_auth' and self.ebiz_profile_id.is_emv_pre_auth:
-                emv_command = 'AuthOnly'
-            for line in self.order_id.order_line:
-                line_list.append((0, 0, {
-                    "name": line.product_id.name,
-                    "description": line.product_id.name,
-                    "list_price": line.price_unit,
-                    "sku": line.product_id.default_code,
-                    "commoditycode": line.product_id.default_code,
-                    "discountamount": line.discount,
-                    "discountrate": "0",
-                    "taxable": True,
-                    "taxamount":line.price_tax,
-                    'qty': line.product_qty,
-                    'price_unit': line.price_unit,
-                    'price_subtotal': line.price_subtotal,
-                }))
-            device_value = {
-                'devicekey': self.emv_device_id.source_key,
-                'pin': self.ebiz_profile_id.pin,
-                'journal_id': self.journal_id.id,
-                'email_sent': True if self.ebiz_send_receipt else False, 
-                'amount': self.amount,
-                'partner_id': self.partner_id.id,
-                'payment_date': self.date,
-                'invoice': self.order_id.name,
-                'sale_id': self.order_id.id,
-                'command': emv_command,
-                "ponum": self.order_id.name,
-                "orderid": self.order_id.name,
-                "description": self.order_id.name,
-                "billing_address": {
-                    "company": self.partner_id.company_name,
-                    "street": str(self.partner_id.street2) + str(self.partner_id.street2),
-                    "postalcode": self.partner_id.zip, },
-                "shipping_address": {
-                    "company": self.partner_id.company_name,
-                    "street": str(self.partner_id.street2) + str(self.partner_id.street2),
-                    "postalcode": self.partner_id.zip, },
-                'emv_device_ids': line_list,
-            }
-            emv_device_transaction = self.env['emv.device.transaction'].create(device_value)
-            emv_device_transaction.sale_id.emv_transaction_id = emv_device_transaction.id
-            emv_device_transaction.action_post()
-            emv_device_transaction.sale_id.log_status_emv = "Transaction Sent to Selected Device: "+str(self.emv_device_id.name)
-            context = dict()
-            context['message'] =  'Transaction has been successfully sent to the device!'
-            context['default_transaction_id'] = emv_device_transaction.id
-            return self.message_wizard(context)
         else:
-            raise ValidationError(_('Please select any payment method [Credit Card/Bank Account]!'))
+            payment = self.action_create_payment()
+            payment.enable_surcharge = self.enable_surcharge
+            transactions = payment._create_payment_transaction()
+            transactions.write({
+                'payment_id': payment.id,
+                'sale_order_ids': [self.order_id.id],
+                'invoice_ids': False,
+                'transaction_type': self.transaction_type,
+            })
+            if self.partner_id.ebiz_profile_id.payment_memo_setting == 'dn_pon_pm':
+                self._set_payment_memo(payment)
+            resp = transactions.with_context({'full_amount': True, 'pre_auth_order': True})._send_payment_request()
+            transactions.write({'invoice_ids': False})
+            avs_result = self.get_avs_result(resp)
+            if not (all(x == 'Match' for x in avs_result) and resp['ResultCode'] == 'A'):
+                return self.with_context(
+                    {'transaction_id': transactions.id, 'full_amount': True}).show_payment_response(resp)
+            self.order_id.transaction_ids = [transactions.id]
+            payment.payment_transaction_id = transactions.id
+            payment.transaction_ref = transactions.reference or self.memo
+            transactions._set_authorized()
+            if not self.card_save and not self.card_id:
+                self.payment_token_id.delete_payment_method()
+                self.partner_id.refresh_payment_methods()
+            context = self.action_check_surcharge(transactions)
+            return self.message_wizard(context)
+
+    def _process_ach(self):
+        if not self.ach_id:
+            self.payment_token_id = self.create_bank_account().id
+        else:
+            self.payment_token_id = self.ach_id.id
+        payment = self.action_create_payment()
+        transactions = payment._create_payment_transaction()
+        transactions.write({
+            'payment_id': payment.id,
+            'sale_order_ids': [self.order_id.id],
+            'invoice_ids': False,
+            'transaction_type': self.transaction_type,
+        })
+        if self.partner_id.ebiz_profile_id.payment_memo_setting == 'dn_pon_pm':
+            self._set_payment_memo(payment)
+        transactions.with_context({'pre_auth_order': True})._send_payment_request()
+        transactions.write({'invoice_ids': False})
+        if not self.bank_account_save and not self.ach_id:
+            self.payment_token_id.delete_payment_method()
+            self.partner_id.refresh_payment_methods()
+        context = self.action_check_surcharge(payment.payment_transaction_id)
+        return self.message_wizard(context)
+
+    def _process_emv_device(self):
+        emv_command = 'AuthOnly' if self.transaction_type == 'pre_auth' and self.ebiz_profile_id.is_emv_pre_auth else 'sale'
+        line_list = [(0, 0, {
+            "name": line.product_id.name,
+            "description": line.product_id.name,
+            "list_price": line.price_unit,
+            "sku": line.product_id.default_code,
+            "commoditycode": line.product_id.default_code,
+            "discountamount": line.discount,
+            "discountrate": "0",
+            "taxable": True,
+            "taxamount": line.price_tax,
+            'qty': line.product_qty,
+            'price_unit': line.price_unit,
+            'price_subtotal': line.price_subtotal,
+        }) for line in self.order_id.order_line]
+        payment_memo_setting = self.partner_id.ebiz_profile_id.payment_memo_setting
+        doc_number = self.order_id.name
+        if payment_memo_setting == 'dn_pon_pm':
+            doc_number = " ".join(part for part in [doc_number, self.order_id.client_order_ref] if part)
+        device_value = {
+            'devicekey': self.emv_device_id.source_key,
+            'pin': self.ebiz_profile_id.pin,
+            'journal_id': self.journal_id.id,
+            'email_sent': bool(self.ebiz_send_receipt),
+            'amount': self.amount,
+            'partner_id': self.partner_id.id,
+            'payment_date': self.date,
+            'invoice': doc_number,
+            'sale_id': self.order_id.id,
+            'command': emv_command,
+            "ponum": self.order_id.client_order_ref or self.order_id.name,
+            "orderid": self.order_id.name,
+            "description": self.order_id.name,
+            "billing_address": {
+                "company": self.partner_id.company_name,
+                "street": str(self.partner_id.street2) + str(self.partner_id.street2),
+                "postalcode": self.partner_id.zip,
+            },
+            "shipping_address": {
+                "company": self.partner_id.company_name,
+                "street": str(self.partner_id.street2) + str(self.partner_id.street2),
+                "postalcode": self.partner_id.zip,
+            },
+            'emv_device_ids': line_list,
+        }
+        emv_device_transaction = self.env['emv.device.transaction'].create(device_value)
+        emv_device_transaction.sale_id.emv_transaction_id = emv_device_transaction.id
+        emv_device_transaction.action_post()
+        emv_device_transaction.sale_id.log_status_emv = "Transaction Sent to Selected Device: " + str(self.emv_device_id.name)
+        context = {
+            'message': 'Transaction has been successfully sent to the device!',
+            'default_transaction_id': emv_device_transaction.id,
+        }
+        return self.message_wizard(context)
 
     def action_check_surcharge(self, transaction):
         context = dict()
-        eligible = False
-        if transaction.is_pay_method_eligible and transaction.is_zip_code_allowed:
-            eligible = True
-        context['message'] = 'Transaction has been successfully processed!'
+        if self.ebiz_profile_id.is_surcharge_enabled and self.enable_surcharge:
+            eligible = transaction.is_pay_method_eligible and transaction.is_zip_code_allowed
+            context['default_is_surcharge'] = True if self.partner_id.ebiz_profile_id.is_surcharge_enabled else False
+            context['default_is_eligible'] = eligible
+            context['default_surcharge_subtotal'] = transaction.payment_id.amount
+            context['default_surcharge_amount'] = transaction.surcharge_amt
+            context['default_surcharge_percentage'] = transaction.surcharge_percent
+            context['default_surcharge_total'] = transaction.payment_id.amount + float(transaction.surcharge_amt)
+        else:
+            context['default_surcharge_total'] = transaction.amount
         context['default_is_ach'] = False if self.token_type == 'credit' else True
-        context['default_is_surcharge'] = True if self.partner_id.ebiz_profile_id.is_surcharge_enabled else False
-        context['default_is_eligible'] = eligible
-        context['default_surcharge_subtotal'] = transaction.payment_id.amount
-        context['default_surcharge_amount'] = transaction.surcharge_amt
-        context[
-            'default_surcharge_percentage'] = transaction.surcharge_percent
-        context['default_surcharge_total'] = transaction.payment_id.amount + float(
-            transaction.surcharge_amt)
+        context['message'] = 'Transaction has been successfully processed!'
         context['default_currency_id'] = self.env.company.currency_id.id
         context['default_partner_id'] = transaction.token_id.partner_id.name if transaction.token_id else transaction.partner_id.name
-        context['default_transaction_type'] = 'Auth Only' if transaction.transaction_type=='pre_auth' else 'Sale'
-        context['default_surcharge_percent'] = str(transaction.surcharge_percent) +' %'
+        context['default_transaction_type'] = 'Auth Only' if transaction.transaction_type == 'pre_auth' else 'Sale'
+        context['default_surcharge_percent'] = f"{transaction.surcharge_percent:.2f} %"
         context['default_document_number'] = transaction.reference
         context['default_reference_number'] = transaction.provider_reference
         context['default_auth_code'] = transaction.ebiz_auth_code
@@ -582,13 +629,14 @@ class CustomRegisterPayment(models.Model):
         context['default_avs_street'] = transaction.payment_id.ebiz_avs_street if transaction.payment_id.ebiz_avs_street else transaction.ebiz_avs_street
         context['default_avs_zip_code'] = transaction.payment_id.ebiz_avs_zip if transaction.payment_id.ebiz_avs_zip else transaction.ebiz_avs_zip_code
         context['default_cvv'] = transaction.ebiz_cvv_resp
+        context['default_enable_surcharge'] = self.enable_surcharge
         return context
 
     def action_create_payment(self):
         ebiz_method = self.env['account.payment.method.line'].search(
             [('journal_id', '=', self.journal_id.id), ('payment_method_id.code', '=', 'ebizcharge')], limit=1)
 
-        payment = self.env['account.payment'].sudo().create({
+        return self.env['account.payment'].sudo().create({
             'journal_id': self.journal_id.id,
             'payment_method_id': ebiz_method.payment_method_id.id if ebiz_method else False,
             'payment_method_line_id': ebiz_method.id if ebiz_method else False,
@@ -597,12 +645,12 @@ class CustomRegisterPayment(models.Model):
             'partner_id': self.sub_partner_id.id,
             'partner_type': 'customer',
             'payment_type': 'inbound',
+            'memo': self.memo,
             'ebiz_avs_street': self.ebiz_avs_street,
             'ebiz_avs_zip': self.ebiz_avs_zip,
             'ebiz_send_receipt': self.ebiz_send_receipt,
             'ebiz_receipt_emails': self.ebiz_receipt_emails,
         })
-        return payment
 
     def message_wizard(self, context):
         return {
@@ -623,7 +671,7 @@ class CustomRegisterPayment(models.Model):
         params = {
             "account_holder_name": self.ach_account_holder_name,
             'payment_method_id': method,
-            "payment_details": self.ach_account,
+            "payment_details": 'XXXXX%s' % self.ach_account[-4:],
             "account_number": self.ach_account,
             "account_type": self.ach_account_type,
             "routing": self.ach_routing,
@@ -650,16 +698,14 @@ class CustomRegisterPayment(models.Model):
         self.ensure_one()
         if self.env.context.get('avs_bypass'):
             return True
-        avs_action = False
-        use_full_amount_for_avs = False
-        if self.partner_id.ebiz_profile_id:
-            avs_action = self.partner_id.ebiz_profile_id.merchant_card_verification
-            use_full_amount_for_avs = self.partner_id.ebiz_profile_id.use_full_amount_for_avs
+        profile = self.partner_id.ebiz_profile_id
+        avs_action = profile.merchant_card_verification if profile else False
+        use_full_amount_for_avs = profile.use_full_amount_for_avs if profile else False
 
         if avs_action == 'minimum-amount':
             resp = self.credit_card_validate_transaction()
             avs_result = self.get_avs_result(resp)
-            if all([x == 'Match' for x in avs_result]) and resp['ResultCode'] == 'A':
+            if all(x == 'Match' for x in avs_result) and resp['ResultCode'] == 'A':
                 return True, avs_result, resp
             else:
                 return self.show_payment_response(resp), None, None
@@ -673,7 +719,7 @@ class CustomRegisterPayment(models.Model):
             else:
                 resp = self.credit_card_validate_transaction()
                 avs_result = self.get_avs_result(resp)
-                if all([x == 'Match' for x in avs_result]) and resp['ResultCode'] == 'A':
+                if all(x == 'Match' for x in avs_result) and resp['ResultCode'] == 'A':
                     return True, avs_result, resp
                 else:
                     return self.show_payment_response(resp), None, None
@@ -682,11 +728,7 @@ class CustomRegisterPayment(models.Model):
 
     def validate_card_runcustomertransaction(self):
         try:
-            security_code = self.security_code
-            instance = None
-            if self.partner_id.ebiz_profile_id:
-                instance = self.partner_id.ebiz_profile_id
-
+            instance = self.partner_id.ebiz_profile_id or None
             ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
             params = {
                 "securityToken": ebiz._generate_security_json(),
@@ -701,23 +743,20 @@ class CustomRegisterPayment(models.Model):
                     "CustReceiptName": '',
                     "CustReceiptEmail": '',
                     "CustReceipt": False,
-                    "CardCode": security_code,
+                    "CardCode": self.security_code,
                     "Command": 'AuthOnly',
                 },
             }
             resp = ebiz.client.service.runCustomerTransaction(**params)
-            resp_void = ebiz.execute_transaction(resp['RefNum'], {'command': 'Void'})
+            ebiz.execute_transaction(resp['RefNum'], {'command': 'Void'})
         except Exception as e:
             _logger.exception(e)
-            raise ValidationError(e)
+            raise ValidationError(str(e))
         return resp
 
     def credit_card_validate_transaction(self):
         try:
-            instance = None
-            if self.partner_id.ebiz_profile_id:
-                instance = self.partner_id.ebiz_profile_id
-
+            instance = self.partner_id.ebiz_profile_id or None
             ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
             params = {
                 "securityToken": ebiz._generate_security_json(),
@@ -734,51 +773,36 @@ class CustomRegisterPayment(models.Model):
                 }
             }
             resp = ebiz.client.service.runTransaction(**params)
-            resp_void = ebiz.execute_transaction(resp['RefNum'], {'command': 'Void'})
+            ebiz.execute_transaction(resp['RefNum'], {'command': 'Void'})
         except Exception as e:
-            raise ValidationError(e)
+            raise ValidationError(str(e))
         return resp
 
-    def _get_credit_card_dict(self, existing_card=None):
-        if not existing_card:
-            return {
-                'InternalCardAuth': False,
-                'CardPresent': False,
-                'CardNumber': self.card_card_number,
-                "CardExpiration": "%s%s" % (self.card_exp_month, self.card_exp_year[2:]),
-                'CardCode': self.card_card_code,
-                'AvsStreet': self.card_avs_street,
-                'AvsZip': self.card_avs_zip,
-            }
-        else:
-            return {
-                'InternalCardAuth': False,
-                'CardPresent': False,
-                'CardNumber': self.card_card_number,
-                "CardExpiration": "%s%s" % (self.card_exp_month, self.card_exp_year[2:]),
-                'CardCode': self.card_card_code,
-                'AvsStreet': self.card_avs_street,
-                'AvsZip': self.card_avs_zip,
-            }
+    def _get_credit_card_dict(self):
+        return {
+            'InternalCardAuth': False,
+            'CardPresent': False,
+            'CardNumber': self.card_card_number,
+            "CardExpiration": "%s%s" % (self.card_exp_month, self.card_exp_year[2:]),
+            'CardCode': self.card_card_code,
+            'AvsStreet': self.card_avs_street,
+            'AvsZip': self.card_avs_zip,
+        }
 
     def create_ebiz_payment_method(self, params_dict, type=None):
         instance = self.partner_id.ebiz_profile_id
         ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
-        if not type:
-            resp = ebiz.add_customer_payment_profile(profile=params_dict)
-        else:
-            resp = ebiz.add_customer_payment_profile(profile=params_dict, p_type=type)
-        return resp
+        extra = {'p_type': type} if type else {}
+        return ebiz.add_customer_payment_profile(profile=params_dict, **extra)
 
     def create_credit_card_payment_method(self):
-        if not self.partner_id.ebiz_internal_id:
-            self.partner_id.sync_to_ebiz()
+        self.partner_id.sync_to_ebiz()
         method = self.env.ref('payment_ebizcharge_crm.payment_method_ebizcharge').id
         params = {
             "account_holder_name": self.card_account_holder_name,
             'payment_method_id': method,
             "card_number": self.card_card_number,
-            "payment_details": self.card_card_number,
+            "payment_details": 'XXXXXXXXXXXX%s' % self.card_card_number[-4:],
             "card_exp_year": self.card_exp_year,
             "card_exp_month": self.card_exp_month,
             "avs_street": self.card_avs_street,
@@ -798,8 +822,9 @@ class CustomRegisterPayment(models.Model):
             "is_card_save": True,
             "active": True,
         })
-        token = self.env['payment.token'].with_context({'from_wizard': True,'donot_sync': True}).create(params)
+        token = self.env['payment.token'].with_context({'from_wizard': True, 'donot_sync': True}).create(params)
         token.action_sync_token_to_ebiz()
+        token.get_card_type()
         return token
 
     def reset_credit_card_fields(self):
@@ -814,48 +839,10 @@ class CustomRegisterPayment(models.Model):
         })
 
     def get_avs_result(self, resp):
-        card_code = ''
-        if resp['CardCodeResultCode'] == 'M':
-            card_code = 'Match'
-        elif resp['CardCodeResultCode'] == 'N':
-            card_code = 'No Match'
-        elif resp['CardCodeResultCode'] == 'P':
-            card_code = 'Not Processed'
-        elif resp['CardCodeResultCode'] == 'S':
-            card_code = 'Should be on card but not so indicated'
-        elif resp['CardCodeResultCode'] == 'U':
-            card_code = 'Issuer Not Certified'
-        elif resp['CardCodeResultCode'] == 'X':
-            card_code = 'No response from association'
-        elif resp['CardCodeResultCode'] == '':
-            card_code = 'No CVV2/CVC data available for transaction'
-
-        avs = resp['AvsResultCode']
-        address, zip_code = 'No Match', 'No Match'
-
-        if avs in ['YYY', 'Y', 'YYA', 'YYD']:
-            address = zip_code = 'Match'
-        if avs in ['NYZ', 'Z']:
-            zip_code = 'Match'
-        if avs in ['YNA', 'A', 'YNY']:
-            address = 'Match'
-        if avs in ['YYX', 'X']:
-            address = zip_code = 'Match'
-        if avs in ['NYW', 'W']:
-            zip_code = 'Match'
-        if avs in ['GGG', 'D']:
-            address = zip_code = 'Match'
-        if avs in ['YGG', 'P']:
-            zip_code = 'Match'
-        if avs in ['YYG', 'B', 'M']:
-            address = 'Match'
-        if address == 'No Match':
-            address = resp['AvsResult']
-        if zip_code == 'No Match':
-            zip_code = resp['AvsResult']
+        card_code, address, zip_code = _parse_avs_result(resp)
         self.ebiz_avs_street = address
         self.ebiz_avs_zip = zip_code
-        return card_code.strip(), address.strip(), zip_code.strip()
+        return card_code, address, zip_code
 
     def show_payment_response(self, resp, my_full_amount=None, customer_token=None, payment_method_id=None,
                               bypass_newcard_avs=None, saved_avs_card=None, ebizcharge_profile=None):

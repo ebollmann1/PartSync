@@ -32,6 +32,7 @@
                     <field invisible="1" name="ebiz_invoice_status"/>
                     <field invisible="1" name="done_transaction_ids"/>
                     <field invisible="1" name="email_received_payments"/>
+                    <field name="inv_enable_sur" invisible="1"/>
                     <field name="save_payment_link" invisible="1"/>
                     <field name="ebiz_payment_link" invisible="1"/>
                     <button class="oe_highlight" invisible="move_type != 'out_invoice' or state == 'draft'" name="sync_to_ebiz_invoice" string="EBizCharge Upload" type="object"/>
@@ -45,7 +46,7 @@
                     <button class="oe_highlight" invisible="not ebiz_internal_id" name="show_ebiz_invoice" string="View EBizCharge Invoice" type="object"/>
                 </xpath>
                 <xpath expr="//field[@name='invoice_incoterm_id']" position="after">
-                        <field name="save_payment_link" string="Payment Link" readonly="1" widget="CopyClipboardChar" invisible="save_payment_link == False"/>
+                        <field name="save_payment_link" string="Payment Link" readonly="1" widget="CopyClipboardLink" invisible="save_payment_link == False"/>
                         <field name="request_amount" invisible="1"/>
                         <field name="last_request_amount" invisible="1"/>
                 </xpath>

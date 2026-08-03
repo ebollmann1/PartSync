@@ -33,13 +33,13 @@
                             <field name="subtotal" readonly="1" options="{'currency_field': 'currency_id'}"
                                    widget="monetary" string="Subtotal"/>
                             <field name="surcharge_percent" readonly="1"
-                                   invisible="surcharge_percentage==0.0 or not is_surcharge or is_ach"
+                                   invisible="surcharge_percentage==0.0 or not is_surcharge or is_ach or not enable_surcharge"
                                    string="Surcharge %"/>
-                            <label for="surcharge_amount" string="Surcharge Amount" invisible="surcharge_amount != 0.0 or not is_surcharge or is_ach"/>
+                            <label for="surcharge_amount" string="Surcharge Amount" invisible="surcharge_amount != 0.0 or not is_surcharge or is_ach or not enable_surcharge"/>
                             <field name="surcharge_amount" style="display: inline-block;" readonly="1"
                                    options="{'currency_field': 'currency_id'}" widget="monetary"
-                                   invisible="surcharge_amount==0.0 or not is_surcharge or is_ach"/>
-                            <span style="display: inline-block;" invisible="surcharge_amount != 0.0 or not is_surcharge or is_ach">Ineligible</span>
+                                   invisible="surcharge_amount==0.0 or not is_surcharge or is_ach or not enable_surcharge"/>
+                            <span style="display: inline-block;" invisible="surcharge_amount != 0.0 or not is_surcharge or is_ach or not enable_surcharge">Ineligible</span>
                         </group>
                         <group string="Security Checks" invisible="is_ach">
                             <field name="avs_street" readonly="1" string="AVS Street" invisible="is_ach"/>
@@ -326,6 +326,9 @@
                         <list>
                             <field name="customer_name"/>
                             <field name="customer_id"/>
+                            <field name="should_show_icon" column_invisible="1"/>
+                            <field name="display_tooltip_message" column_invisible="1"/>
+                            <field name="email_address" widget="char_icon" readonly="1" options="{'icon_condition_field': 'should_show_icon', 'icon_tooltip_field': 'display_tooltip_message'}"/>
                             <field color="green:status=='Success'" name="status"/>
                         </list>
                     </field>
@@ -357,11 +360,30 @@
                     <br/>
                     <field color="green:status=='Success'" name="lines_ids" readonly="1">
                         <list>
-                            <field name="number"/>
+                            <field name="invoice_id"/>
                             <field name="customer_name"/>
                             <field name="customer_id"/>
+                            <field name="should_show_icon" column_invisible="1"/>
+                            <field name="display_tooltip_message" column_invisible="1"/>
+                            <field name="email" widget="char_icon" readonly="1" options="{'icon_condition_field': 'should_show_icon', 'icon_tooltip_field': 'display_tooltip_message'}"/>
                             <field color="green:status=='Success'" name="status"/>
                         </list>
+                        <form>
+                            <group>
+                                <group>
+                                    <field name="message_id"/>\
+                                    <field name="email" widget="char_icon" readonly="1" options="{'icon_condition_field': 'should_show_icon', 'icon_tooltip_field': 'display_tooltip_message'}"/>
+                                    <field color="green:status=='Success'" name="status"/>
+                                    <field name="should_show_icon" invisible="1"/>
+                                    <field name="display_tooltip_message" invisible="1"/>
+                                </group>
+                                <group>
+                                    <field name="invoice_id"/>
+                                    <field name="customer_name"/>
+                                    <field name="customer_id"/>
+                                </group>
+                            </group>
+                        </form>
                     </field>
                     <footer>
                         <button class="oe_highlight" special="cancel" string="Ok" style="width:10%"/>

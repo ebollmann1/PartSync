@@ -2,11 +2,11 @@
 from datetime import datetime
 from zeep import Client
 from odoo.exceptions import ValidationError
+from zeep.helpers import serialize_object
 
 
-def message_wizard(message, title="Success"):
-    context = dict()
-    context['message'] = message
+def message_wizard(message, title="Success", **extra_context):
+    context = {'message': message, **extra_context}
     return {
         'name': title,
         'view_type': 'form',
@@ -46,14 +46,14 @@ class EBizChargeAPI:
         }
         return security_json
 
+    @staticmethod
+    def _split_name(name):
+        parts = name.split(' ') if name else []
+        return parts[0] if parts else '', ' '.join(parts[1:])
+
     def _add_customer_params(self, partner):
         addr = partner.address_get(['delivery', 'invoice'])
-        name_array = partner.name.split(' ')
-        first_name = name_array[0]
-        if len(name_array) >= 2:
-            last_name = " ".join(name_array[1:])
-        else:
-            last_name = ""
+        first_name, last_name = self._split_name(partner.name)
         division = ''
         if partner.company_id:
             division = str(partner.company_id.id)
@@ -67,7 +67,7 @@ class EBizChargeAPI:
             "LastName": last_name,
             "CompanyName": partner.parent_id.name if partner.parent_id else partner.name or "",
             "Phone": partner.phone or "",
-            "CellPhone": partner.mobile or "",
+            "CellPhone": partner.phone or "",
             "Fax": "",
             "Email": partner.email or "",
             'BillingAddress': self._get_customer_address(partner.browse(addr['invoice'])),
@@ -83,13 +83,16 @@ class EBizChargeAPI:
         customer_params = self._add_customer_params(partner)
         res = self.client.service.AddCustomer(**customer_params)
         if res['ErrorCode'] == 2:
-            get_resp = self.get_customer(partner.id)
-            partner.write({
-                'ebiz_internal_id': get_resp['CustomerInternalId'],
-                'ebiz_customer_id': get_resp['CustomerId'],
-                "ebizcharge_customer_token": get_resp['CustomerToken']
-            })
-            res = self.update_customer(partner)
+            try:
+                get_resp = self.get_customer(partner.id)
+                partner.write({
+                    'ebiz_internal_id': get_resp['CustomerInternalId'],
+                    'ebiz_customer_id': get_resp['CustomerId'],
+                    "ebizcharge_customer_token": get_resp['CustomerToken']
+                })
+                res = self.update_customer(partner)
+            except Exception:
+                raise ValidationError('Customer is Inactive at EbizCharge Admin Portal.')
         return res
 
     def _update_customer_params(self, partner):
@@ -105,12 +108,18 @@ class EBizChargeAPI:
 
     def update_customer(self, partner):
         customer_params = self._update_customer_params(partner)
-        return self.client.service.UpdateCustomer(**customer_params)
+        res = self.client.service.UpdateCustomer(**customer_params)
+        if res['ErrorCode'] == 3:
+            res = self.add_customer(partner)
+        return res
 
     def get_customer(self, partner_id):
         customer_params = self._get_customer_params(partner_id)
-        res = self.client.service.GetCustomer(**customer_params)
-        return res
+        try:
+            res = self.client.service.GetCustomer(**customer_params)
+            return res
+        except Exception as e:
+            raise ValidationError('Customer is Inactive at Admin Portal.')
 
     def get_customer_token(self, partner_id):
         try:
@@ -130,12 +139,12 @@ class EBizChargeAPI:
             "Description": line.product_id.description,
             "UnitPrice": line.price_unit,
             "Qty": line.product_uom_qty,
-            "Taxable": True if line.tax_id else False,
+            "Taxable": bool(line.tax_ids),
             "TaxRate": 0,
             "GrossPrice": 0,
             "WarrantyDiscount": 0,
             "SalesDiscount": line.discount,
-            "UnitOfMeasure": line.product_uom.name,
+            "UnitOfMeasure": line.product_uom_id.name,
             "TotalLineAmount": line.price_subtotal,
             "TotalLineTax": line.price_tax,
             "ItemLineNumber": item_no,
@@ -159,7 +168,7 @@ class EBizChargeAPI:
             [('name', '=', 'website_sale'), ('state', 'in', ['installed', 'to upgrade', 'to remove'])])
         if web_sale and order.website_id:
             software = 'ODOO WEB'
-        order = {
+        so_object = {
             "CustomerId": order.partner_id.id,
             "SubCustomerId": "",
             "SalesOrderNumber": order.name,
@@ -185,7 +194,7 @@ class EBizChargeAPI:
             "IsToBePrinted": 0,
             "Items": array_of_items(self._so_lines_params(order.order_line))
         }
-        return order
+        return so_object
 
     def _add_order_params(self, order):
         sync_object = {
@@ -214,7 +223,7 @@ class EBizChargeAPI:
         return res
 
     def _payment_profile_credit_card(self, profile):
-        if type(profile) != dict:
+        if not isinstance(profile, dict):
             credit_card = {
                 "AccountHolderName": profile.account_holder_name,
                 "MethodType": "CreditCard",
@@ -246,7 +255,7 @@ class EBizChargeAPI:
             return credit_card
 
     def _payment_profile_bank(self, profile):
-        if type(profile) != dict:
+        if not isinstance(profile, dict):
             bank_profile = {
                 "AccountHolderName": profile.account_holder_name,
                 "MethodType": "ACH",
@@ -277,7 +286,7 @@ class EBizChargeAPI:
     def _generate_payment_profile(self, profile, p_type='credit'):
         return {
             'securityToken': self._generate_security_json(),
-            'customerInternalId': profile.partner_id.ebiz_internal_id if type(profile) != dict else profile.get(
+            'customerInternalId': profile.partner_id.ebiz_internal_id if not isinstance(profile, dict) else profile.get(
                 'ebiz_internal_id'),
             "paymentMethodProfile": self._payment_profile_credit_card(
                 profile) if p_type == "credit" else self._payment_profile_bank(profile)
@@ -351,19 +360,13 @@ class EBizChargeAPI:
             'ShippingAddress': self._get_customer_address(
                 invoice.partner_shipping_id) if invoice.partner_shipping_id else '',
         }
-        if invoice.move_type == 'out_invoice':
-            invoice_obj['InvoiceAmount'] = invoice.amount_total_signed
-        elif invoice.move_type == 'out_refund':
-            invoice_obj['InvoiceAmount'] = -invoice.amount_total_signed
+        if invoice.move_type == 'out_refund':
+            if invoice.amount_residual_signed == 0  and invoice.amount_total_signed < 0:
+                invoice_obj['InvoiceAmount'] = -invoice.amount_total_signed
         return invoice_obj
 
     def _get_customer_address(self, partner):
-        name_list = partner.name.split(' ') if partner.name else False
-        first_name = name_list[0] if name_list else ''
-        if name_list and len(name_list) >= 2:
-            last_name = " ".join(name_list[1:])
-        else:
-            last_name = ""
+        first_name, last_name = self._split_name(partner.name)
         address = {
             "FirstName": first_name,
             "LastName": last_name,
@@ -413,10 +416,11 @@ class EBizChargeAPI:
             order_id = sale.name
             invoice_id = sale.invoice_ids[0].name if sale.invoice_ids else sale.name
             po = sale.client_order_ref or sale.name
+            invoice_id = self._get_sale_number(sale)
         if sale._name == "account.move":
             order_id = sale.invoice_origin or sale.name
-            invoice_id = sale.name
             po = sale.ref or sale.name
+            invoice_id = self._get_invoice_number(sale)
             trans_amount = sale.amount_residual
 
         trans_ids = sale.transaction_ids.filtered(lambda x: x.state == 'draft')
@@ -424,13 +428,11 @@ class EBizChargeAPI:
             trans_amount = trans_ids[0].amount
         tax_amount = 0
         if sale.amount_tax > 0:
-            #tax_perc = (sale.amount_tax / sale.amount_untaxed) * 100
-            #tax_amount = (trans_amount / 100) * tax_perc
             if trans_amount == sale.amount_total:
                 tax_amount = sale.amount_tax
 
         subtotal_auth = 0
-        if command==None and command not in ('capture','Capture'):
+        if command is None:
             subtotal_auth = round(trans_amount - tax_amount, 2)        
         return {
             'OrderID': order_id,
@@ -457,7 +459,7 @@ class EBizChargeAPI:
             if line._name == 'account.move.line':
                 pass
             elif line._name == 'sale.order.line':
-                taxable = True if line.tax_id else False
+                taxable = bool(line.tax_ids)
                 tax = line.price_tax
             return {
                 'SKU': line.product_id.id,
@@ -477,15 +479,11 @@ class EBizChargeAPI:
         if trans_ids:
             trans_amount = trans_ids[0].amount 
 
-        if captured_amount!=None and command=='Capture':
+        if captured_amount is not None and command == 'Capture':
             trans_amount = captured_amount
 
-        if command=='Capture' and trans_amount==lines.amount_total:
-            order_lines = lines.order_line if lines._name=='sale.order' else lines.invoice_line_ids            
-            for line in order_lines:
-                item_list.append(self._transaction_line(line))
-        elif trans_amount==lines.amount_total:  
-            order_lines = lines.order_line if lines._name=='sale.order' else lines.invoice_line_ids
+        if trans_amount == lines.amount_total:
+            order_lines = lines.order_line if lines._name == 'sale.order' else lines.invoice_line_ids
             for line in order_lines:
                 item_list.append(self._transaction_line(line))
         else:
@@ -536,20 +534,18 @@ class EBizChargeAPI:
             "CustReceipt": False,
             "LineItems": self._transaction_lines(order),
             "CustomerID": order.partner_id.id,
-            "CreditCardData": credit_card,
             "AccountHolder": profile['account_holder_name'],
             'BillingAddress': address_obj,
             'ShippingAddress': address_obj
         }
+        if command == 'Check':
+            obj['CheckData'] = credit_card
+        else:
+            obj['CreditCardData'] = credit_card
         return obj
 
     def _get_customer_address_for_transaction(self, partner):
-        name_array = partner.name.split(' ')
-        first_name = name_array[0]
-        if len(name_array) >= 2:
-            last_name = " ".join(name_array[1:])
-        else:
-            last_name = ""
+        first_name, last_name = self._split_name(partner.name)
         address = {
             "FirstName": first_name,
             "LastName": last_name,
@@ -565,15 +561,19 @@ class EBizChargeAPI:
 
     def run_transaction(self, order, profile, command='sale', token_ebiz=None):
         try:
-            credit_card = []
-            if token_ebiz==None:
-                credit_card = self._get_credit_card_transaction(profile)
-                credit_card['CardNumber'] = card
-            elif token_ebiz:
+            if token_ebiz is None:
+                payment_data = self._get_credit_card_transaction(profile)
+            elif command == 'Check':
+                payment_data = {
+                    'Routing': token_ebiz['routingNumber'],
+                    'Account': token_ebiz['accountNumber'],
+                    'AccountType': token_ebiz['accountType'],
+                }
+            else:
                 exp_date = token_ebiz["expiry"].split('/')
-                card_exp_year =  str(2000 + int(exp_date[1]))
-                card_exp_month =  str(int(exp_date[0]))
-                credit_card = {
+                card_exp_year = str(2000 + int(exp_date[1]))
+                card_exp_month = str(int(exp_date[0]))
+                payment_data  = {
                     'InternalCardAuth': False,
                     'CardPresent': False,
                     'CardNumber': token_ebiz['cardNumber'],
@@ -582,7 +582,7 @@ class EBizChargeAPI:
                     'AvsStreet': token_ebiz['street'],
                     'AvsZip': token_ebiz['zip']
                 }
-            transaction_params = self.get_transaction_object(order, credit_card, profile, command)
+            transaction_params = self.get_transaction_object(order, payment_data, profile, command)
             params = {
                 'securityToken': self._generate_security_json(),
                 'tran': transaction_params
@@ -597,37 +597,22 @@ class EBizChargeAPI:
             [('name', '=', 'website_sale'), ('state', 'in', ['installed', 'to upgrade', 'to remove'])])
         if web_sale and order.website_id:
             software = 'ODOO WEB'
+        trans_object = {
+            "isRecurring": False,
+            "IgnoreDuplicate": False,
+            "Details": self._get_transaction_details(order, command=command),
+            "Software": software,
+            "MerchReceipt": True,
+            "CustReceipt": False,
+            "CustReceiptName": '',
+            "CustReceiptEmail": '',
+            "ClientIP": '',
+            "Command": command if profile.token_type == "credit" else "Check",
+        }
         if order.transaction_ids and order.transaction_ids[0].security_code:
-            trans_object = {
-                "isRecurring": False,
-                "IgnoreDuplicate": False,
-                "Details": self._get_transaction_details(order, command=command),
-                "Software": software,
-                "MerchReceipt": True,
-                "CustReceipt": False,
-                "CustReceiptName": '',
-                "CustReceiptEmail": '',
-                "ClientIP": '',
-                "CardCode": order.transaction_ids[0].security_code,
-                "Command": command if profile.token_type == "credit" else "Check",
-            }
-            for i in order.transaction_ids:
-                i.write({
-                    'security_code': False
-                })
+            trans_object['CardCode'] = order.transaction_ids[0].security_code
+            order.transaction_ids.write({'security_code': False})
         else:
-            trans_object = {
-                "isRecurring": False,
-                "IgnoreDuplicate": False,
-                "Details": self._get_transaction_details(order, command=command),
-                "Software": software,
-                "MerchReceipt": True,
-                "CustReceipt": False,
-                "CustReceiptName": '',
-                "CustReceiptEmail": '',
-                "ClientIP": '',
-                "Command": command if profile.token_type == "credit" else "Check",
-            }
             if profile.card_code:
                 trans_object['CardCode'] = profile.card_code
             profile.card_code = False
@@ -671,15 +656,20 @@ class EBizChargeAPI:
 
     def run_full_amount_transaction(self, order, profile, command, card, token_ebiz=None):
         try:
-            credit_card = []
-            if token_ebiz==None:
-                credit_card = self._get_credit_card_transaction(profile)
-                credit_card['CardNumber'] = card
-            elif token_ebiz:
+            if token_ebiz is None:
+                payment_data = self._get_credit_card_transaction(profile)
+                payment_data['CardNumber'] = card
+            elif command == 'Check':
+                payment_data = {
+                    'Routing': token_ebiz['routingNumber'],
+                    'Account': token_ebiz['accountNumber'],
+                    'AccountType': token_ebiz['accountType'],
+                }
+            else:
                 exp_date = token_ebiz["expiry"].split('/')
                 card_exp_year =  str(2000 + int(exp_date[1]))
                 card_exp_month =  str(int(exp_date[0]))
-                credit_card = {
+                payment_data = {
                     'InternalCardAuth': False,
                     'CardPresent': False,
                     'CardNumber': token_ebiz['cardNumber'],
@@ -688,7 +678,7 @@ class EBizChargeAPI:
                     'AvsStreet': token_ebiz['street'],
                     'AvsZip': token_ebiz['zip']
                 }
-            transaction_params = self.get_transaction_object_run_transaction(order, credit_card, profile, command)
+            transaction_params = self.get_transaction_object_run_transaction(order, payment_data, profile, command)
             params = {
                 "securityToken": self._generate_security_json(),
                 "tran": transaction_params,
@@ -698,7 +688,6 @@ class EBizChargeAPI:
             raise ValidationError(e)
 
     def get_transaction_object_run_transaction(self, order, credit_card, profile, command):
-        order.partner_id.address_get()
         address_obj = self._get_customer_address_for_transaction(order.partner_id)
         software = 'ODOO CRM'
         web_sale = order.env['ir.module.module'].sudo().search(
@@ -722,14 +711,31 @@ class EBizChargeAPI:
         }
         return obj
 
+    def _get_invoice_number(self, invoice):
+        payment_memo_setting = invoice.partner_id.ebiz_profile_id.payment_memo_setting
+        doc_number = invoice.name
+        if payment_memo_setting == 'dn_pon_pm':
+            return " ".join(part for part in [doc_number, invoice.ref] if part)
+        return doc_number
+
+    def _get_sale_number(self, sale):
+        payment_memo_setting = sale.partner_id.ebiz_profile_id.payment_memo_setting
+        doc_number = sale.name
+        if payment_memo_setting == 'dn_pon_pm':
+            return " ".join(part for part in [doc_number, sale.client_order_ref] if part)
+        return doc_number
+
     def execute_transaction(self, ref_num, kwargs, invoice=False, sale=False, ebiz_transaction_amt=False,
                             transaction_histry_amt=False, transaction_histry_tax=False, emv_trans=None):
         try:
-            reference_number = 'Product'
             transaction_params = {}
             if invoice:
                 captured_amount = invoice.amount_residual
-                reference_number = invoice.name
+                order_id = invoice.name
+                if kwargs.get('trans') and kwargs.get('trans').transaction_type == 'pre_auth':
+                    # EBizCharge caps OrderID at 20 chars; truncate here rather than on the stored reference
+                    # so duplicate-suffixed refund references (e.g. "Reversal of: INV/...") stay unique locally.
+                    order_id = kwargs.get('trans').reference.split('-')[0][:20]
                 software = 'ODOO CRM'
                 web_sale = invoice.env['ir.module.module'].sudo().search(
                     [('name', '=', 'website_sale'), ('state', 'in', ['installed', 'to upgrade', 'to remove'])])
@@ -744,13 +750,15 @@ class EBizChargeAPI:
                     'Software': software,
                     "LineItems": self._transaction_lines(invoice, command=kwargs['command'], captured_amount=captured_amount),
                     'Details': {
-                        'Invoice': invoice.name,
+                        'OrderID': order_id,
+                        'Invoice': self._get_invoice_number(invoice),
+                        'PONum': invoice.ref if invoice.ref else invoice.name,
                         'Description': "Customer Credit",
-                        'Amount': transaction_histry_amt if transaction_histry_amt!=False else captured_amount,
-                        'Tax': transaction_histry_tax if transaction_histry_tax!=False else invoice.amount_tax,
+                        'Amount': transaction_histry_amt if transaction_histry_amt is not False else captured_amount,
+                        'Tax': transaction_histry_tax if transaction_histry_tax is not False else invoice.amount_tax,
                         'Shipping': 0,
                         'Discount': 0,
-                        'Subtotal': transaction_histry_amt if transaction_histry_amt!=False  else invoice.amount_residual,
+                        'Subtotal': transaction_histry_amt if transaction_histry_amt is not False else invoice.amount_residual,
                         'AllowPartialAuth': False,
                         'Tip': 0,
                         'NonTax': True,
@@ -767,15 +775,17 @@ class EBizChargeAPI:
                     'IgnoreDuplicate': False,
                     'CustReceipt': True,
                     'Software': software,
-                    "LineItems": self._transaction_lines(invoice, command=kwargs['command']),
+                    "LineItems": self._transaction_lines(sale, command=kwargs['command']),
                     'Details': {
-                        'Invoice': sale.name,
+                        'OrderID': sale.name,
+                        'Invoice': self._get_sale_number(sale),
+                        'PONum': sale.client_order_ref if sale.client_order_ref else sale.name,
                         'Description': "Customer Credit",
-                        'Amount': transaction_histry_amt if transaction_histry_amt!=False else captured_amount,
-                        'Tax':  transaction_histry_tax if transaction_histry_tax!=False else sale.amount_tax,
+                        'Amount': transaction_histry_amt if transaction_histry_amt is not False else captured_amount,
+                        'Tax': transaction_histry_tax if transaction_histry_tax is not False else sale.amount_tax,
                         'Shipping': 0,
                         'Discount': 0,
-                        'Subtotal': transaction_histry_amt if transaction_histry_amt!=False else sale.amount_total,
+                        'Subtotal': transaction_histry_amt if transaction_histry_amt is not False else sale.amount_total,
                         'AllowPartialAuth': False,
                         'Tip': 0,
                         'NonTax': True,
@@ -783,7 +793,7 @@ class EBizChargeAPI:
                     },
                 }
 
-            elif transaction_histry_amt and invoice==False and sale==False:
+            elif transaction_histry_amt and not invoice and not sale:
                 transaction_params = {
                     'Command': kwargs['command'],
                     'RefNum': ref_num,
@@ -805,8 +815,7 @@ class EBizChargeAPI:
                     },
                 }
             else:
-                #noon
-                if emv_trans!=None:
+                if emv_trans is not None:
                     transaction_params = {
                         'Command': kwargs['command'],
                         'Details': self._get_emv_transaction_details(emv_trans),
@@ -823,22 +832,7 @@ class EBizChargeAPI:
                         'IsRecurring': False,
                         'IgnoreDuplicate': False,
                         'CustReceipt': True,
-                    }  
- 
-            if transaction_histry_amt!=False:
-                tax_amt = 0
-                if transaction_histry_tax!=False:
-                    tax_amt = transaction_histry_tax    
-                #transaction_params['LineItems'] = {'LineItem': [{
-                  #  'SKU': reference_number,
-                 #   'ProductName': reference_number,
-                 #   'Description': reference_number,
-                 #   'UnitPrice': float(transaction_histry_amt)-float(tax_amt),
-                 #   'Taxable': 1 if transaction_histry_tax!=False else 0,
-                 #   'TaxAmount': transaction_histry_tax if transaction_histry_tax!=False else 0,
-                 #   'Qty': 1,
-                #    'DiscountRate': 0,
-                #}]}
+                    }
             params = {
                 'securityToken': self._generate_security_json(),
                 'tran': transaction_params
@@ -847,11 +841,24 @@ class EBizChargeAPI:
         except Exception as e:
             raise ValidationError(e)
 
+    def is_transaction_surcharged(self, ref_num):
+        try:
+            params = {
+                'securityToken': self._generate_security_json(),
+                'transactionRefNum': ref_num
+            }
+            resp = self.client.service.GetTransactionDetails(**params)
+            resp_dict = serialize_object(resp)
+            lines = resp_dict.get("LineItems", {}).get("LineItem", [])
+            return any(d.get("SKU") == 'Charge' for d in lines)
+        except:
+            return False
 
     def _get_emv_transaction_details(self, trans_id):
         return {
             'OrderID': "",
-            'Invoice': trans_id['reference'],
+            # EBizCharge caps Invoice at 20 chars; truncate at the wire boundary, not at storage.
+            'Invoice': (trans_id['reference'] or "")[:20],
             'PONum': "",
             'Description': 'Transaction Captured from ODOO',
             'Amount': trans_id['amount'],
@@ -867,13 +874,24 @@ class EBizChargeAPI:
 
 
     def void_transaction(self, trans, invoice=None):
-        ref_num = trans.provider_reference
+        ref_num = trans.provider_reference or (trans.source_transaction_id and trans.source_transaction_id.provider_reference)
         kwargs = {'command': 'Void'}
         return self.execute_transaction(ref_num, kwargs)
 
     def capture_transaction(self, trans, invoice=None, sale=None, ebiz_transaction_amt=None , emv_trans=None):
-        ref_num = trans.provider_reference
-        kwargs = {'command': 'Capture'}
+        ref_num = trans.provider_reference or (trans.source_transaction_id and trans.source_transaction_id.provider_reference)
+        if invoice and not emv_trans:
+            invoice.inv_enable_sur = self.is_transaction_surcharged(ref_num)
+            merchant_toggle_sur_per_txn = invoice.partner_id.ebiz_profile_id.merchant_toggle_sur_per_txn
+            kwargs = {
+                'command': 'Capture;IsSurchargeEnabled=false' if merchant_toggle_sur_per_txn and not invoice.inv_enable_sur else 'Capture', 'trans': trans}
+        elif sale and not emv_trans:
+            merchant_toggle_sur_per_txn = sale.partner_id.ebiz_profile_id.merchant_toggle_sur_per_txn
+            sale.sale_enable_sur = self.is_transaction_surcharged(ref_num)
+            kwargs = {
+                'command': 'Capture;IsSurchargeEnabled=false' if merchant_toggle_sur_per_txn and not sale.sale_enable_sur else 'Capture', 'trans': trans}
+        else:
+            kwargs = {'command': 'Capture', 'trans': trans}
         return self.execute_transaction(ref_num, kwargs, invoice, sale, ebiz_transaction_amt, emv_trans=emv_trans)
 
     def return_transaction(self, **kwargs):
@@ -924,7 +942,8 @@ class EBizChargeAPI:
                     "Command": command,
                     "Details": {
                         'OrderID': "",
-                        'Invoice': trans_id.reference,
+                        # EBizCharge caps Invoice at 20 chars; truncate at the wire boundary, not at storage.
+                        'Invoice': (trans_id.reference or "")[:20],
                         'PONum': "",
                         'Description': "Customer Credit",
                         'Amount': trans_id.amount,

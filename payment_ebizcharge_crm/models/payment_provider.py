@@ -4,7 +4,7 @@ from datetime import datetime
 import logging
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError, AccessError
-from ..utils import strtobool
+from ..tools import strtobool
 
 _logger = logging.getLogger(__name__)
 
@@ -47,8 +47,6 @@ class PaymentAcquirerEBizCharge(models.Model):
         'USD': 0.05
     }
 
-
-
     @api.model
     def _get_compatible_providers(self, *args, is_validation=False, **kwargs):
         """ Override of payment to unlist EbizCharge providers for validation operations. """
@@ -58,7 +56,6 @@ class PaymentAcquirerEBizCharge(models.Model):
         return providers
 
     def _get_ebizcharge_urls(self, environment):
-        """ EBizCharge URLS """
         return {
             'ebizcharge_form_url': '/payment/ebizcharge',
         }
@@ -69,23 +66,10 @@ class PaymentAcquirerEBizCharge(models.Model):
         return self._get_ebizcharge_urls(environment)['ebizcharge_form_url']
 
     def get_acquirer_name(self, *args):
-        if self.name == 'EBizCharge':
-            return True
-        else:
-            return False
+        return self.name == 'EBizCharge'
 
     @api.model
     def _get_feature_support(self):
-        """Get advanced feature support by provider.
-
-        Each provider should add its technical in the corresponding
-        key for the following features:
-            * fees: support payment fees computations
-            * authorize: support authorizing payment (separates
-                         authorization and capture)
-            * tokenize: support saving payment data in a payment.tokenize
-                        object
-        """
         res = super(PaymentAcquirerEBizCharge, self)._get_feature_support()
         res['authorize'].append('ebizcharge')
         res['tokenize'].append('ebizcharge')
@@ -96,9 +80,7 @@ class PaymentAcquirerEBizCharge(models.Model):
         method = self.env.ref('payment_ebizcharge_crm.payment_method_ebizcharge').id
         if 'cardData' in data:
             exp_date = data['cardData']["expiry"].split('/')
-            default = False
-            if 'default_card_method' in data['cardData']:
-                default = True if data['cardData']['default_card_method'] == 'true' else False
+            default = data['cardData'].get('default_card_method') == 'true'
             update_data = {
                 "card_exp_year": str(2000 + int(exp_date[1])),
                 "card_exp_month": str(int(exp_date[0])),
@@ -109,9 +91,7 @@ class PaymentAcquirerEBizCharge(models.Model):
                 "is_default": default
             }
         else:
-            default = False
-            if 'default_card_method' in data['bankData']:
-                default = True if data['bankData']['default_card_method'] == 'true' else False
+            default = data['bankData'].get('default_card_method') == 'true'
             update_data = {
                 "routing": data['bankData']['routingNumber'],
                 "account_holder_name": data['bankData']["nameOnAccount"],
@@ -150,14 +130,10 @@ class PaymentAcquirerEBizCharge(models.Model):
                     "card_number": data['cardData']["cardNumber"].replace(" ", ""),
                     "avs_street": data['cardData']["street"],
                     "avs_zip": data['cardData']['zip'],
-                    "is_card_save": True if data['cardData']['tokenBox'] == 'true' else False
+                    "is_card_save": data['cardData']['tokenBox'] == 'true'
                 })
-                if data['cardData']['default_card_method'] != 'true':
-                    update_data.update({
-                        "is_default": False
-                    })
                 if 'partner_id' in data:
-                    partner_obj = self.env['res.partner'].browse([data['partner_id']])
+                    partner_obj = self.env['res.partner'].browse(data['partner_id'])
                     instance = partner_obj.ebiz_profile_id
                     if instance.merchant_card_verification == 'minimum-amount':
                         if instance.verify_card_before_saving:
@@ -184,12 +160,8 @@ class PaymentAcquirerEBizCharge(models.Model):
                     "payment_method_id": method,
                     "partner_id": int(data['partner_id']),
                     "token_type": "ach",
-                    "is_card_save": True if data['bankData']['tokenBox'] == 'true' else False
+                    "is_card_save": data['bankData']['tokenBox'] == 'true'
                 })
-                if data['bankData']['default_card_method'] != 'true':
-                    update_data.update({
-                        "is_default": False
-                    })
             payment_token = token.sudo().create(update_data)
             payment_token.action_sync_token_to_ebiz()
             payment_token.card_code = False
@@ -202,7 +174,6 @@ class PaymentAcquirerEBizCharge(models.Model):
             if len(data['bankData']['accountNumber']) < 4 or len(data['bankData']['accountNumber']) > 17 or len(
                     data['bankData']['routingNumber']) > 9 or len(data['bankData']['routingNumber']) < 9:
                 return False
-            # Checking for mandatory fields
             for field_name in mandatory_fields:
                 if not data['bankData'].get(field_name):
                     error[field_name] = 'missing'
@@ -211,7 +182,6 @@ class PaymentAcquirerEBizCharge(models.Model):
             if data['cardData']['expiry'] and datetime.now().strftime('%y%m') > datetime.strptime(
                     data['cardData']['expiry'].replace(' ', ''), '%m/%y').strftime('%y%m'):
                 return False
-            # Checking for mandatory fields
             for field_name in mandatory_fields:
                 if not data['cardData'].get(field_name):
                     if field_name == 'cardCode' and data.get('partner_id'):
@@ -228,7 +198,7 @@ class PaymentAcquirerEBizCharge(models.Model):
             instance = None
             partner_obj = False
             if 'partner_id' in data:
-                partner_obj = self.env['res.partner'].browse([data['partner_id']])
+                partner_obj = self.env['res.partner'].browse(data['partner_id'])
                 instance = partner_obj.ebiz_profile_id
             ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(self.env.context.get('website'), instance=instance)
             params = {

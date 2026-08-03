@@ -1,8 +1,6 @@
 from odoo import fields, models, api, _
 from odoo.exceptions import UserError, ValidationError
 import logging
-from datetime import datetime, timedelta
-from dateutil import relativedelta
 
 
 class CardExpiringSoon(models.TransientModel):
@@ -21,39 +19,25 @@ class CardExpiringSoon(models.TransientModel):
 
     def apply_filters(self):
         try:
-            self.env["list.ebiz.customers"].search([]).unlink()
             instances = self.env['ebizcharge.instance.config'].browse(self.env.context.get('profiles'))
+            payment_ui = self.env['payment.method.ui'].browse(self.env.context.get('payment_method_ui_id'))
+            line_vals = [fields.Command.clear()]
             for instance in instances:
-                list_of_dict = []
                 filters_list = []
                 ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
 
-                if self.date_selection == 'this_month':
-                    filters_list.append(
-                        {'FieldName': 'ExpireThisMonthCreditCardsCount', 'ComparisonOperator': 'gt', 'FieldValue': 0})
-
-                elif self.date_selection == 'next_month':
-                    filters_list.append(
-                        {'FieldName': 'ExpireNextMonthCreditCardsCount', 'ComparisonOperator': 'gt', 'FieldValue': 0})
-
-                elif self.date_selection == 'within_3_month':
-                    filters_list.append(
-                        {'FieldName': 'ExpireWithin3MonthCreditCardsCount', 'ComparisonOperator': 'gt', 'FieldValue': 0})
-
-                elif self.date_selection == 'within_6_month':
-                    filters_list.append(
-                        {'FieldName': 'ExpireWithin6MonthCreditCardsCount', 'ComparisonOperator': 'gt', 'FieldValue': 0})
-
-                elif self.date_selection == 'within_a_year':
-                    filters_list.append(
-                        {'FieldName': 'ExpireWithinaYearCreditCardsCount', 'ComparisonOperator': 'gt', 'FieldValue': 0})
-
-                elif self.date_selection == 'specific_days':
-                    filters_list.append(
-                        {'FieldName': 'ExpireWithinaYearCreditCardsCount', 'ComparisonOperator': 'gt', 'FieldValue': 0})
-
-                else:
+                _filter_map = {
+                    'this_month': 'ExpireThisMonthCreditCardsCount',
+                    'next_month': 'ExpireNextMonthCreditCardsCount',
+                    'within_3_month': 'ExpireWithin3MonthCreditCardsCount',
+                    'within_6_month': 'ExpireWithin6MonthCreditCardsCount',
+                    'within_a_year': 'ExpireWithinaYearCreditCardsCount',
+                    'specific_days': 'ExpireWithinaYearCreditCardsCount',
+                }
+                field_name = _filter_map.get(self.date_selection)
+                if not field_name:
                     raise UserError('No option selected!')
+                filters_list.append({'FieldName': field_name, 'ComparisonOperator': 'gt', 'FieldValue': 0})
 
                 params = {
                     'securityToken': ebiz._generate_security_json(),
@@ -69,26 +53,24 @@ class CardExpiringSoon(models.TransientModel):
 
                     for card in cards_lists:
                         try:
-                            local_customer = self.env['res.partner'].search([('ebiz_internal_id', '!=', False),
-                                                                             ('ebiz_internal_id', '=',
-                                                                              card['CustomerInformation'][
-                                                                                  'CustomerInternalId'])])
-                        except Exception as e:
+                            internal_id = card['CustomerInformation']['CustomerInternalId']
+                            if not internal_id:
+                                continue
+                            local_customer = self.env['res.partner'].search(
+                                [('ebiz_internal_id', '=', internal_id)], limit=1)
+                        except Exception:
                             continue
 
                         if local_customer:
-                            list_of_dict.append({
-                                'customer_name': local_customer[0].id,
-                                'customer_id': card['CustomerInformation']['CustomerId'] or '',
+                            line_vals.append(fields.Command.create({
+                                'customer_id': local_customer.id,
                                 'email_id': card['CustomerInformation']['Email'] or '',
                                 'customer_phone': card['CustomerInformation']['Phone'] or '',
                                 'customer_city': card['CustomerInformation']['BillingAddress'] or
                                                  card['CustomerInformation']['ShippingAddress'] or '',
-                                'sync_transaction_id': self.env['payment.method.ui'].search([])[-1].id,
-                            })
+                                'sync_transaction_id': payment_ui.id,
+                            }))
 
-                    if list_of_dict:
-                        self.env['list.ebiz.customers'].sudo().create(list_of_dict)
-
+            payment_ui.transaction_history_line = line_vals
         except Exception as e:
             raise ValidationError(e)

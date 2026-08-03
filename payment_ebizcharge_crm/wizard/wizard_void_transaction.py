@@ -1,5 +1,4 @@
-from odoo import fields, models, api
-import json
+from odoo import fields, models
 
 
 class WizardTransactionValidation(models.TransientModel):
@@ -21,12 +20,9 @@ class WizardTransactionValidation(models.TransientModel):
     def proceed_with(self):
         if self.transaction_id.payment_id:
             try:
-                if not self.transaction_id:
-                    self.transaction_id.payment_id.action_post()
-                    return True
                 if self.transaction_id.payment_id.transaction_command == "Sale":
                     self.transaction_id._set_done()
-                    self.transaction_id.payment_id.with_context().action_post()
+                    self.transaction_id.payment_id.action_post()
                     return True
             except:
                 pass

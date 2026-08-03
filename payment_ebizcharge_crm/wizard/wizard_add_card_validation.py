@@ -4,10 +4,7 @@ from odoo import fields, models
 class WizardTransactionValidation(models.TransientModel):
     _name = 'wizard.add.card.validation'
     _description = "Wizard Add Card Validation"
-    """
-    Kuldeep's implementation
-    Wizard for showing avs validation response
-    """
+
     wizard_process_id = fields.Many2one('wizard.add.new.card')
     address = fields.Char('Address', default="Match")
     zip_code = fields.Char('Zip/Postal Code', default="Match")
@@ -17,22 +14,13 @@ class WizardTransactionValidation(models.TransientModel):
     denied_message = fields.Char("Denied Message")
 
     def _compute_avs_validation_resp(self):
-        self.check_avs_match = (self.card_code.strip() == 'Match') & (self.address.strip() == 'Match') & (
+        self.check_avs_match = (self.card_code.strip() == 'Match') and (self.address.strip() == 'Match') and (
                     self.zip_code.strip() == 'Match')
 
     def save_card_anyway(self):
-        """
-        Kuldeep's implementation
-        Proceed With transaction 
-        """
         return self.wizard_process_id.create_credit_card_payment_method_default_msg()
 
     def update_and_retry(self):
-        """
-        Kuldeep's implementation
-        Proceed With transaction 
-        """
-
         action = self.env.ref('payment_ebizcharge_crm.action_wizard_add_new_card').read()[0]
         action['res_id'] = self.wizard_process_id.id
         self.wizard_process_id.write({
@@ -44,10 +32,6 @@ class WizardTransactionValidation(models.TransientModel):
         return action
 
     def show_void_wizard(self):
-        """
-        Kuldeep's implementation
-        function for void transaction wizard
-        """
         wiz = self.env['wizard.ebiz.transaction.void'].create({
             'sale_order_id': self.sale_order_id.id,
             'wizard_process_id': self.wizard_process_id.id,

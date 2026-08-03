@@ -9,10 +9,10 @@ class RequestPaymentMethod(models.TransientModel):
 
     @api.model
     def default_get(self, default_fields):
-        rec = super(RequestPaymentMethod, self).default_get(default_fields)
-        partner = self.env['res.partner'].browse([self._context['partner']])
-        ach_option = True if partner.ebiz_profile_id.merchant_data else False
-        cc_option = True if partner.ebiz_profile_id.allow_credit_card_pay else False       
+        rec = super().default_get(default_fields)
+        partner = self.env['res.partner'].browse(self.env.context['partner'])
+        ach_option = bool(partner.ebiz_profile_id.merchant_data)
+        cc_option = bool(partner.ebiz_profile_id.allow_credit_card_pay)
         rec.update({
             'cc_option': cc_option,
             'ach_option': ach_option,
@@ -23,7 +23,7 @@ class RequestPaymentMethod(models.TransientModel):
     ebiz_profile_id = fields.Many2one('ebizcharge.instance.config')
 
     def _default_template(self):
-        partner = self.env['res.partner'].browse([self._context['partner']])
+        partner = self.env['res.partner'].browse(self.env.context['partner'])
 
         tem_check = self.env['email.templates'].search(
             [('template_type_id', '=', 'AddPaymentMethodFormEmail'), ('instance_id', '=', partner.ebiz_profile_id.id)])
@@ -42,8 +42,7 @@ class RequestPaymentMethod(models.TransientModel):
                     odoo_temp = template_obj.search(
                         [('template_id', '=', template['TemplateInternalId']), ('instance_id', '=', instance.id)])
                     if not odoo_temp:
-                        if template['TemplateTypeId'] != 'TransactionReceiptMerchant' and template[
-                            'TemplateTypeId'] != 'TransactionReceiptCustomer':
+                        if template['TemplateTypeId'] not in ('TransactionReceiptMerchant', 'TransactionReceiptCustomer'):
                             template_obj.create({
                                 'name': template['TemplateName'],
                                 'template_id': template['TemplateInternalId'],
@@ -59,10 +58,7 @@ class RequestPaymentMethod(models.TransientModel):
             tem_check = self.env['email.templates'].search(
                 [('template_type_id', '=', 'AddPaymentMethodFormEmail'),
                  ('instance_id', '=', partner.ebiz_profile_id.id)])
-            if tem_check:
-                return tem_check[0].id
-            else:
-                return None
+            return tem_check[0].id if tem_check else None
 
     select_template = fields.Many2one('email.templates', string='Select Template', default=_default_template)
     email = fields.Char('Email')
@@ -87,9 +83,9 @@ class RequestPaymentMethod(models.TransientModel):
 
     def send_email(self):
         try:
-            instance = False
-            if self.partner_id.ebiz_profile_id:
-                instance = self.partner_id.ebiz_profile_id
+            if '@' not in self.email:
+                raise UserError('You might have entered the wrong Email Address!')
+            instance = self.partner_id.ebiz_profile_id or None
             ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
             partner = self.env['res.partner']
             addr = self.partner_id.address_get(['delivery', 'invoice'])
@@ -107,7 +103,7 @@ class RequestPaymentMethod(models.TransientModel):
                 'FromEmail': 'support@ebizcharge.com',
                 'FromName': 'EBizCharge',
                 'EmailSubject': self.subject,
-                'EmailNotes': self.email_note if self.email_note else '',
+                'EmailNotes': self.email_note or '',
                 'EmailAddress': self.email,
                 'EmailTemplateID': self.select_template.template_id,
                 'EmailTemplateName': self.select_template.name,
@@ -126,7 +122,7 @@ class RequestPaymentMethod(models.TransientModel):
                 'securityToken': ebiz._generate_security_json(),
                 'ePaymentForm': ePaymentForm
             })
-            self.partner_id.request_payment_method_sent = True
+            self.partner_id.write({'request_payment_method_sent': True})
             return message_wizard('Payment method request was successfully sent.')
 
         except Exception as e:
@@ -141,12 +137,12 @@ class PaymentMethodBulk(models.TransientModel):
 
     @api.model
     def default_get(self, default_fields):
-        rec = super(PaymentMethodBulk, self).default_get(default_fields)
+        rec = super().default_get(default_fields)
         if 'ebiz_profile_id' in rec:
-            instance = self.env['ebizcharge.instance.config'].search([('id', '=', rec['ebiz_profile_id'] )], limit=1)
+            instance = self.env['ebizcharge.instance.config'].browse(rec['ebiz_profile_id'])
             instance_id = instance.id
-            ach_option = True if instance.merchant_data else False
-            cc_option = True if instance.allow_credit_card_pay else False
+            ach_option = bool(instance.merchant_data)
+            cc_option = bool(instance.allow_credit_card_pay)
             tem_check = self.env['email.templates'].search([('instance_id', '=', instance_id), ('template_type_id', '=', 'AddPaymentMethodFormEmail')])
             if tem_check:
                 select_template = tem_check[0].id
@@ -162,8 +158,7 @@ class PaymentMethodBulk(models.TransientModel):
                         odoo_temp = template_obj.search(
                             [('template_id', '=', template['TemplateInternalId']), ('instance_id', '=', instance.id)])
                         if not odoo_temp:
-                            if template['TemplateTypeId'] != 'TransactionReceiptMerchant' and template[
-                                'TemplateTypeId'] != 'TransactionReceiptCustomer':
+                            if template['TemplateTypeId'] not in ('TransactionReceiptMerchant', 'TransactionReceiptCustomer'):
                                 template_obj.create({
                                     'name': template['TemplateName'],
                                     'template_id': template['TemplateInternalId'],
@@ -203,10 +198,7 @@ class PaymentMethodBulk(models.TransientModel):
             instance_id = instance.id
         tem_check = self.env['email.templates'].search(
             [('instance_id', '=', instance_id), ('template_type_id', '=', 'AddPaymentMethodFormEmail')])
-        if tem_check:
-            return tem_check[0].id
-        else:
-            return None
+        return tem_check[0].id if tem_check else None
 
     select_template = fields.Many2one('email.templates', string='Select Template')
     subject = fields.Char('Subject', related='select_template.template_subject', readonly=False)
@@ -252,7 +244,7 @@ class PaymentMethodBulk(models.TransientModel):
                         'FromEmail': 'support@ebizcharge.com',
                         'FromName': 'EBizCharge',
                         'EmailSubject': self.subject,
-                        'EmailNotes': self.email_note if self.email_note else '',
+                        'EmailNotes': self.email_note or '',
                         'EmailAddress': record.email,
                         'EmailTemplateID': self.select_template.template_id,
                         'EmailTemplateName': self.select_template.name,
@@ -266,31 +258,34 @@ class PaymentMethodBulk(models.TransientModel):
                         'ShowViewInvoiceLink': True,
                         'SendEmailToCustomer': True,
                     }
-                    instance = None
-                    if record.partner_id.ebiz_profile_id:
-                        instance = record.partner_id.ebiz_profile_id
+                    instance = record.partner_id.ebiz_profile_id or None
 
                     ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
                     form_url = ebiz.client.service.GetEbizWebFormURL(**{
                         'securityToken': ebiz._generate_security_json(),
                         'ePaymentForm': ePaymentForm
                     })
-                    record.partner_id.request_payment_method_sent = True
+                    record.partner_id.write({'request_payment_method_sent': True})
                     self.env['rpm.counter'].create({
                         'request_id': form_url.split('=')[1],
                         'counter': 1,
                     })
 
                     resp_line['status'] = 'Success'
+                    resp_line['should_show_icon'] = False
                     success += 1
                 elif not record.email:
                     resp_line['status'] = 'Failed (No Email Address)'
+                    resp_line['should_show_icon'] = True
+                    resp_line['display_tooltip_message'] = 'No Email Address'
                     failed += 1
                 else:
-                    resp_line['status'] = 'Failed (Wrong Email Address)'
+                    resp_line['status'] = 'Failed (Invalid Email Address)'
+                    resp_line['should_show_icon'] = True
+                    resp_line['display_tooltip_message'] = 'Invalid Email Address'
                     failed += 1
 
-                resp_lines.append([0, 0, resp_line])
+                resp_lines.append(fields.Command.create(resp_line))
 
             if self.env.context.get('active_model') == 'payment.method.ui':
                 active_id = self.env[self.env.context.get('active_model')].browse(self.env.context.get('active_id'))
@@ -300,7 +295,7 @@ class PaymentMethodBulk(models.TransientModel):
                                                                       'success_count': success, 'failed_count': failed,
                                                                       'total': total_count})
             action = self.env.ref('payment_ebizcharge_crm.wizard_multi_payment_message_action').read()[0]
-            action['context'] = self._context
+            action['context'] = self.env.context
             action['res_id'] = wizard.id
             return action
 

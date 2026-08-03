@@ -17,9 +17,7 @@ class EBizChargeInstanceConfig(models.Model):
 
     def _domain_companies_ids(self):
         instances = self.env['ebizcharge.instance.config'].search([])
-        company_list = []
-        for ins in instances:
-            company_list += ins.company_ids.ids
+        company_list = instances.company_ids.ids
         companies = self.env['res.company'].search([('id', 'not in', company_list)])
         return [('id', 'in', companies.ids)]
 
@@ -78,10 +76,20 @@ class EBizChargeInstanceConfig(models.Model):
     is_emv_enabled = fields.Boolean(string='Is EMV Enabled', default=False)
     is_emv_pre_auth = fields.Boolean(string='Pre-Auth EMV Enabled', default=False)
     use_econnect_transaction_receipt = fields.Boolean(string='Use EConnect Transaction Receipt', default=False)
+    merchant_toggle_sur_per_txn = fields.Boolean(
+        string='Merchant Can Enable Or Disable Surcharge Per Transaction', default=False)
 
+    inv_batch_sur_ctrl = fields.Boolean(string='Control Surcharge Per Transaction', default=False)
+    sale_batch_sur_ctrl = fields.Boolean(string='Control Surcharge Per Transaction')
+    enable_sur_invoice_auto_gpl = fields.Boolean(string='Enable Surcharge')
+    enable_sur_sales_auto_gpl = fields.Boolean(string='Enable Surcharge')
     invoice_auto_gpl = fields.Boolean(string='Auto Generate links for Invoices')
     sales_auto_gpl = fields.Boolean(string='Auto Generate links for Sales Orders')
     apply_sale_pay_inv = fields.Boolean(string='Apply sale order payment conversion')
+    payment_memo_setting = fields.Selection([
+        ('dn_only', 'Show Document Number only'),
+        ('dn_pon_pm', 'Show combined Document Number, Purchase Order Number, and Payment Method'),
+    ], default='dn_only')
     email_pay_sale = fields.Selection([
         ('pre_auth', 'Pre-Auth'),
         ('deposit', 'Deposit'),
@@ -90,8 +98,6 @@ class EBizChargeInstanceConfig(models.Model):
         ('pre_auth', 'Pre-Auth'),
         ('deposit', 'Deposit'),
     ], string='GPL Type', default='pre_auth', index=True)
-
-
 
     def generate_hash(self, source_key, seed, pin):
         hash_input = str(source_key) + str(seed) + str(pin)
@@ -109,7 +115,6 @@ class EBizChargeInstanceConfig(models.Model):
         headers = {
             "Content-Type": "application/json"
         }
-        # Example usage:
         source_key = self.source_key
         seed = ''
         pin = self.pin
@@ -127,28 +132,19 @@ class EBizChargeInstanceConfig(models.Model):
 
         if 'data' in final_list:
             for device in final_list['data']:
+                device_data = {
+                    'name': device['name'],
+                    'pin': device['terminal_info']['key_pin'] if 'terminal_info' in device else '',
+                    'status': device['status'].capitalize(),
+                    'key': source_key,
+                    'source_key': device['key'],
+                    'enable_emv': device['terminal_config']['enable_emv'] if 'terminal_config' in device else '',
+                }
                 exist = self.env['ebizcharge.emv.device'].search([('source_key', '=', device['key'])])
                 if exist:
-                    exist.update({
-                        'name': device['name'],
-                        'pin': device['terminal_info']['key_pin'] if 'terminal_info' in device else '',
-                        'status': device['status'].capitalize(),
-                        'key': source_key,
-                        # 'merchant_id': self.id,
-                        'source_key': device['key'],
-                        'enable_emv': device['terminal_config']['enable_emv'] if 'terminal_config' in device else '',
-                    })
+                    exist.update(device_data)
                 else:
-                    device_info = {
-                        'name': device['name'],
-                        'pin': device['terminal_info']['key_pin'] if 'terminal_info' in device else '',
-                        'status': device['status'].capitalize(),
-                        'key': source_key,
-                        # 'merchant_id': self.id,
-                        'source_key': device['key'],
-                        'enable_emv': device['terminal_config']['enable_emv'] if 'terminal_config' in device else '',
-                    }
-                    ebiz_devices = self.env['ebizcharge.emv.device'].create(device_info)
+                    self.env['ebizcharge.emv.device'].create(device_data)
         else:
             return True
 
@@ -157,12 +153,9 @@ class EBizChargeInstanceConfig(models.Model):
     def action_configure_device(self):
         self.ensure_one()
         device_resp = self.action_get_devices()
-        if device_resp!=None:
+        if device_resp is not None:
             self.source_key = ''
             self.pin = ''
-        if device_resp != None:
-            context = dict()
-            context['message'] = 'Invalid EMV credentials.'
             return {
                 'name': 'User Error',
                 'view_type': 'form',
@@ -171,7 +164,7 @@ class EBizChargeInstanceConfig(models.Model):
                 'view_id': False,
                 'type': 'ir.actions.act_window',
                 'target': 'new',
-                'context': context
+                'context': {'message': 'Invalid EMV credentials.'}
             }
         else:
             emv_device = {
@@ -190,13 +183,11 @@ class EBizChargeInstanceConfig(models.Model):
     
 
     def unlink(self):
-        for record in self:
-            profile = self.env['res.partner'].search([('ebiz_profile_id', '=', record.id)])
-            if profile:
-                raise ValidationError('You cannot delete this Merchant Account because this is attached to a customer.')
-            if record.is_default:
-                raise ValidationError('You cannot delete this Merchant Account because this is a default Merchant '
-                                      'Account. Please set another as default then you can delete it.')
+        if self.env['res.partner'].search([('ebiz_profile_id', 'in', self.ids)], limit=1):
+            raise ValidationError('You cannot delete this Merchant Account because this is attached to a customer.')
+        if self.filtered('is_default'):
+            raise ValidationError('You cannot delete this Merchant Account because this is a default Merchant '
+                                  'Account. Please set another as default then you can delete it.')
         return super(EBizChargeInstanceConfig, self).unlink()
 
     @api.onchange('is_default')
@@ -251,9 +242,11 @@ class EBizChargeInstanceConfig(models.Model):
     def write(self, vals_list):
         context = {}
         if 'company_ids' in vals_list or 'is_default' in vals_list:
-            context.update({
-                'is_write': True
-            })
+            context['is_write'] = True
+        if 'invoice_auto_gpl' in vals_list and vals_list['invoice_auto_gpl']:
+            vals_list['enable_sur_invoice_auto_gpl'] = True
+        if 'sales_auto_gpl' in vals_list and vals_list['sales_auto_gpl']:
+            vals_list['enable_sur_sales_auto_gpl'] = True
         rec = super(EBizChargeInstanceConfig, self.with_context(context)).write(vals_list)
         if 'ebiz_security_key' in vals_list or 'ebiz_user_id' in vals_list or 'ebiz_password' in vals_list:
             self.is_valid_credential = False
@@ -299,16 +292,12 @@ class EBizChargeInstanceConfig(models.Model):
             resp = ebiz.client.service.GetMerchantTransactionData(**{
                 'securityToken': ebiz._generate_security_json()
             })
-        except:
+        except Exception:
             return None, None
 
-        if resp['VerifyCreditCardBeforeSaving']:
-            if resp['UseFullAmountForAVS']:
-                return resp, 'full-amount'
-            else:
-                return resp, 'minimum-amount'
-        else:
+        if not resp['VerifyCreditCardBeforeSaving']:
             return resp, 'no-validation'
+        return resp, 'full-amount' if resp['UseFullAmountForAVS'] else 'minimum-amount'
 
     @api.model
     def default_get(self, fields):
@@ -325,8 +314,7 @@ class EBizChargeInstanceConfig(models.Model):
             [('is_valid_credential', '=', True), ('is_default', '=', True), ('is_active', '=', True)], limit=1)
         if instance:
             return self.get_start_date(*instance.ebiz_document_download_range.split('-'))
-        else:
-            return datetime.now().date() - timedelta(days=6)
+        return datetime.now().date() - timedelta(days=6)
 
     def get_start_date(self, step=1, step_type='week'):
         step_type = step_type if step_type[-1] == 's' else step_type + 's'
@@ -354,28 +342,19 @@ class EBizChargeInstanceConfig(models.Model):
                 self.env[model].search([], limit=1).ebiz_profile_received_id = False
 
     def get_upload_instance(self, active_model, active_id):
-        profile_obj = self.env['ebizcharge.instance.config']
-        default_instance = profile_obj.search(
+        default_instance = self.search(
             [('is_valid_credential', '=', True), ('is_default', '=', True), ('is_active', '=', True), '|',
              ('company_ids', '=', False),
-             ('company_ids', 'in', self._context.get('allowed_company_ids'))],
+             ('company_ids', 'in', self.env.context.get('allowed_company_ids'))],
             limit=1)
         default_instance.action_update_profiles(active_model)
         default_val = False
         if not active_id.ebiz_profile_id:
-            if default_instance:
-                if not default_instance.company_ids:
-                    default_val = str(default_instance.id)
-                elif default_instance.company_ids and default_instance.company_ids.ids in self._context.get(
-                        'allowed_company_ids'):
-                    default_val = str(default_instance.id)
-                else:
-                    profile = profile_obj.search(
-                        [('is_valid_credential', '=', True), ('is_active', '=', True), '|', ('company_ids', '=', False),
-                         ('company_ids', 'in', self.env.company.ids)], limit=1)
-                    default_val = str(profile.id) if profile else False
+            if default_instance and (not default_instance.company_ids or
+                                     default_instance.company_ids.ids in self.env.context.get('allowed_company_ids')):
+                default_val = str(default_instance.id)
             else:
-                profile = profile_obj.search(
+                profile = self.search(
                     [('is_valid_credential', '=', True), ('is_active', '=', True), '|', ('company_ids', '=', False),
                      ('company_ids', 'in', self.env.company.ids)], limit=1)
                 default_val = str(profile.id) if profile else False
@@ -390,25 +369,17 @@ class EBizChargeInstanceConfig(models.Model):
         return today.date()
 
     def _default_instance_id(self):
-        profile_obj = self.env['ebizcharge.instance.config']
-        default_instance = profile_obj.search(
+        default_instance = self.search(
             [('is_valid_credential', '=', True), ('is_default', '=', True), ('is_active', '=', True), '|',
              ('company_ids', '=', False),
-             ('company_ids', 'in', self._context.get('allowed_company_ids'))],
+             ('company_ids', 'in', self.env.context.get('allowed_company_ids'))],
             limit=1)
-        if default_instance:
-            if not default_instance.company_ids:
-                return default_instance.id
-            elif default_instance.company_ids and default_instance.company_ids.ids in self._context.get('allowed_company_ids'):
-                return default_instance.id
-            else:
-                return profile_obj.search(
-                    [('is_valid_credential', '=', True), ('is_active', '=', True), '|', ('company_id', '=', False),
-                     ('company_ids', 'in', self.env.company.ids)], limit=1).id
-        else:
-            return profile_obj.search(
-                [('is_valid_credential', '=', True), ('is_active', '=', True), '|', ('company_ids', '=', False),
-                 ('company_ids', 'in', self.env.company.ids)], limit=1).id
+        if default_instance and (not default_instance.company_ids or
+                                 default_instance.company_ids.ids in self.env.context.get('allowed_company_ids')):
+            return default_instance.id
+        return self.search(
+            [('is_valid_credential', '=', True), ('is_active', '=', True), '|', ('company_ids', '=', False),
+             ('company_ids', 'in', self.env.company.ids)], limit=1).id
 
     def export_generic_method(self, sheet_name, columns):
         header_style = easyxf('font:height 200;pattern: pattern solid, fore_color gray25;'

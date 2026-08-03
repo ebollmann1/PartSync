@@ -1,17 +1,16 @@
 <odoo>
     <data>
 
-     <record id="wizard_message_confirm_wizard_view" model="ir.ui.view">
+        <record id="wizard_message_confirm_wizard_view" model="ir.ui.view">
             <field name="name">message.confirm.wizard.form</field>
             <field name="model">message.confirm.wizard</field>
             <field name="arch" type="xml" >
                 <form string="Message">
                     <field name="is_sale" invisible="1" />
                     <field name="text" nolabel="1" />
-
                     <footer>
                         <button string="Confirm" invisible="is_sale" class="oe_highlight" type="object" name="action_confirm"/>
-                        <button string="yes, continue" invisible="not is_sale" class="oe_highlight" type="object" name="action_apply_pay"/>
+                        <button string="Yes, continue" invisible="not is_sale" class="oe_highlight" type="object" name="action_apply_pay"/>
                         <button string="Cancel" invisible="not is_sale" special="cancel"/>
                     </footer>
                 </form>

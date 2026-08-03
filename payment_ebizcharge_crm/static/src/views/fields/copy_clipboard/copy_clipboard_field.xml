@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <t t-name="payment_ebizcharge_crm.CopyToClipboardField">
+        <div class="d-grid rounded-2 overflow-hidden" style="grid-template-rows: 26px;">
+            <Field t-props="fieldProps"/>
+            <CopyButton t-if="props.record.data[props.name]" className="copyButtonClassName" content="props.record.data[props.name]" icon="copyButtonIcon" successText="successText"/>
+        </div>
+    </t>
+
+</templates>

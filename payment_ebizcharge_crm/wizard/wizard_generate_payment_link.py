@@ -2,7 +2,7 @@ from odoo import fields, models, api
 import logging
 from ..models.ebiz_charge import message_wizard
 from odoo.exceptions import ValidationError, UserError
-
+from markupsafe import Markup
 _logger = logging.getLogger(__name__)
 
 
@@ -12,8 +12,27 @@ class GeneratePaymentLinkWizard(models.TransientModel):
 
     payment_lines = fields.One2many('ebiz.generate.payment.link.lines.bulk', 'wizard_id')
     ebiz_profile_id = fields.Many2one('ebizcharge.instance.config', string='EBizCharge Merchant Account')
+    is_surch_enable = fields.Boolean(string='Surcharge Enabled', related='ebiz_profile_id.is_surcharge_enabled')
+    merchant_toggle_sur_per_txn = fields.Boolean(related='ebiz_profile_id.merchant_toggle_sur_per_txn')
     invoice_link = fields.Boolean(string='Invoice link')
     sale_link = fields.Boolean(string='Sale link')
+
+    def invalidate_existing_payment_link(self, record, instance):
+        if record.save_payment_link:
+            ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
+            ebiz.client.service.DeleteEbizWebFormPayment(**{
+                'securityToken': ebiz._generate_security_json(),
+                'paymentInternalId': record.payment_internal_id,
+            })
+            if not record.is_email_request:
+                record.message_post(
+                    body=Markup(
+                        'EBizCharge Payment Link invalidated: <a href="%s" target="_blank">%s</a>' % (
+                            record.save_payment_link, record.save_payment_link)
+                    ),
+                    message_type="comment",
+                )
+            record.write({'save_payment_link': False})
 
     def generate_payment_link(self):
         try:
@@ -33,33 +52,48 @@ class GeneratePaymentLinkWizard(models.TransientModel):
                     'currency_id': record.currency_id.id,
                     'res_model': 'account.move',
                     'link_check_box': True,
-                    'select_template': tem_check.id
+                    'select_template': tem_check.id,
+                    'enable_surcharge': record.enable_surcharge,
                 }
                 wizard = self.env['ebiz.payment.link.wizard'].create(wizard_vals)
                 wizards.append(wizard)
-                if wizard:
+                if record.invoice_id:
+                    self.invalidate_existing_payment_link(record.invoice_id, record.invoice_id.partner_id.ebiz_profile_id)
+                    record.invoice_id.write({'inv_enable_sur': record.enable_surcharge})
 
-                    wizard.with_context(
-                        {'active_model': default_ebiz_model, 'active_id': int(record.invoice_id),
-                         'from_bulk': True, 'requested_amount': record.request_amount}).generate_link()
+                wizard.with_context(
+                    {'active_model': default_ebiz_model, 'active_id': record.invoice_id.id,
+                     'from_bulk': True, 'requested_amount': record.request_amount}).generate_link()
+            # When launched from the bulk view, ask the final success popup to
+            # rebuild the parent's bulk lines (via regenerate_line_ids in
+            # message.wizard.action_confirm) so the surcharge change is reflected
+            # without a manual refresh. Other callers omit the context key.
+            bulk_regenerate_kwargs = {}
+            if self.env.context.get('bulk_active_model') and self.env.context.get('bulk_active_id'):
+                bulk_regenerate_kwargs = {
+                    'bulk_regenerate_model': self.env.context.get('bulk_active_model'),
+                    'bulk_regenerate_id': self.env.context.get('bulk_active_id'),
+                }
             if self.invoice_link or self.sale_link:
                 copy_links = []
                 for record in self.payment_lines:
-                    doc = self.env[default_ebiz_model].search([('id','=',int(record.invoice_id))], limit=1)
+                    doc = record.invoice_id
                     if doc:
                         copy_link = {
                             'number': doc.name,
                             'link': doc.save_payment_link,
                         }
-                        copy_links.append([0, 0, copy_link])
-                # raise UserError(str(copy_links))
+                        copy_links.append(fields.Command.create(copy_link))
                 cpyline = {'copy_link_lines': copy_links}
                 wiz = self.env['ebiz.payment.link.copy'].create(cpyline)
                 action = self.env.ref('payment_ebizcharge_crm.wizard_copy_link_form_views_action').read()[0]
                 action['res_id'] = wiz.id
                 action['context'] = self.env.context
                 return action
-            return message_wizard(f'{len(wizards)} payment link(s) generated successfully.')
+            return message_wizard(
+                f'{len(wizards)} payment link(s) generated successfully.',
+                **bulk_regenerate_kwargs,
+            )
         except Exception as e:
             raise ValidationError(e)
 
@@ -79,14 +113,16 @@ class GeneratePaymentLinkLines(models.TransientModel):
     check_box = fields.Boolean('Select')
     link_check_box = fields.Boolean('Link Check Box')
     email_id = fields.Char(string='Email ID')
-    invoice_id = fields.Char('Invoice ID')
+    invoice_id = fields.Many2one('account.move', 'Invoice')
     currency_id = fields.Many2one('res.currency', string='Company Currency')
     select_template = fields.Many2one('email.templates', string='Select Template')
     email_subject = fields.Char(string='Subject', related='select_template.template_subject')
     ebiz_profile_id = fields.Many2one('ebizcharge.instance.config')
+    enable_surcharge = fields.Boolean(string='Enable Surcharge', default=True,
+                                      help='When enabled, a surcharge fee will be added to all eligible payments processed with a credit card.')
 
-    @api.onchange('request_amount')
-    def check_request_amount(self):
+    @api.constrains('request_amount')
+    def _constrains_min_amount(self):
         for rec in self:
             if rec.request_amount > rec.amount_residual_signed:
                 raise UserError('Request Amount cannot be greater than the Balance Remaining.')
@@ -104,13 +140,17 @@ class WizardRemoveExistPaymentLink(models.TransientModel):
     text = fields.Text('Message', readonly=True)
 
     def delete_record_link(self):
-        values = self.env.context.get('kwargs_values')
-        if values:
-            vals = [val for val in values if val['generated_link']]
-            for inv in vals:
-                odoo_invoice = self.env['account.move'].search([('id', '=', inv['invoice'][0])])
-                odoo_invoice.delete_ebiz_invoice()
-        return message_wizard(f'{len(vals)} payment link(s) removed successfully.')
+        line_ids = self.env.context.get('selected_line_ids', [])
+        lines = self.env['inv.payment.link.bulk.line'].browse(line_ids).filtered('generated_link')
+        bulk_regenerate_kwargs = {}
+        if lines:
+            bulk_regenerate_kwargs = {
+                'bulk_regenerate_model': 'inv.payment.link.bulk',
+                'bulk_regenerate_id': lines.sync_invoice_id.id,
+            }
+        for line in lines:
+            line.invoice.delete_ebiz_invoice()
+        return message_wizard(f'{len(lines)} payment link(s) removed successfully.', **bulk_regenerate_kwargs)
 
 
 class WizardGenerateSelectPaymentLink(models.TransientModel):
@@ -123,36 +163,6 @@ class WizardGenerateSelectPaymentLink(models.TransientModel):
     text = fields.Text('Message', readonly=True)
 
     def generate_selected_record_link(self):
-        values = self.env.context.get('kwargs_values')
-        profile = False
-        payment_lines = []
-
-        if values:
-            vals = [val for val in values if not val['generated_link']]
-            for inv in vals:
-                search_invoice = self.env['account.move'].search([('id', '=', inv['invoice'][0])])
-                if search_invoice:
-                    if not search_invoice.save_payment_link:
-                        payment_line = {
-                            "invoice_id": int(search_invoice.id),
-                            "name": search_invoice.name,
-                            "customer_name": search_invoice.partner_id.id,
-                            "amount_due": search_invoice.amount_residual_signed,
-                            "amount_residual_signed": search_invoice.amount_residual_signed,
-                            "amount_total_signed": search_invoice.amount_total,
-                            "request_amount": search_invoice.amount_residual_signed,
-                            "odoo_payment_link": search_invoice.odoo_payment_link,
-                            "currency_id": self.env.user.currency_id.id,
-                            "email_id": search_invoice.partner_id.email,
-                            "ebiz_profile_id": search_invoice.partner_id.ebiz_profile_id.id,
-                        }
-                        payment_lines.append([0, 0, payment_line])
-                profile = search_invoice.partner_id.ebiz_profile_id.id
-        wiz = self.env['wizard.ebiz.generate.link.payment.bulk'].with_context(
-            profile=profile).create(
-            {'payment_lines': payment_lines,
-             'ebiz_profile_id': profile})
-        action = self.env.ref('payment_ebizcharge_crm.wizard_generate_link_form_views_action').read()[0]
-        action['res_id'] = wiz.id
-        action['context'] = self.env.context
-        return action
+        line_ids = self.env.context.get('selected_line_ids', [])
+        lines = self.env['inv.payment.link.bulk.line'].browse(line_ids).filtered(lambda r: not r.generated_link)
+        return lines._generate_payment_links()

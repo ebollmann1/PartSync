@@ -1,10 +1,11 @@
-# -*- coding: utf-8 -*-
 import logging
 from odoo.addons.website_sale.controllers.main import WebsiteSale
-from odoo import http, _
-from odoo.http import request
+from odoo import http
+from odoo.http import request, route
 from odoo.exceptions import ValidationError
 _logger = logging.getLogger(__name__)
+from odoo.tools.translate import LazyTranslate, _
+_lt = LazyTranslate(__name__)
 
 
 class EbizchargeController(http.Controller):
@@ -12,15 +13,18 @@ class EbizchargeController(http.Controller):
     _decline_url = '/payment/ebizcharge/cancel'
     _error_url = '/payment/ebizcharge/error'
 
-
-
-    @http.route(['/surcharge/check'], type='json', auth='public', csrf=False)
+    @http.route(['/surcharge/check'], type='jsonrpc', auth='public', csrf=False, website=True)
     def surcharge_check_data(self, verify_validity=False, **kwargs):
         surcharge_calc_amt = 0
         kwargs = kwargs['kwargs']
         partner = request.env.user.partner_id
         if partner.ebiz_profile_id:
             ebiz = request.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=partner.ebiz_profile_id)
+        else:
+            profile = request.env['ebizcharge.instance.config'].sudo().search(
+                [('website_ids', 'in', request.website.ids), ('is_website', '=', True)], limit=1)
+            ebiz = request.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=profile)
+        if ebiz:
             methodid = kwargs['pm_id'] if 'pm_id' in kwargs else 0
             method_id = request.env['payment.token'].search([('id', '=', int(methodid)), ('token_type', '=', 'credit')],
                                                             limit=1)
@@ -47,7 +51,7 @@ class EbizchargeController(http.Controller):
         }
         return res
 
-    @http.route(['/payment/ebizcharge/s2s/create_json_3ds'], type='json', auth='public', csrf=False)
+    @http.route(['/payment/ebizcharge/s2s/create_json_3ds'], type='jsonrpc', auth='public', csrf=False)
     def ebizcharge_s2s_create_json_3ds(self, verify_validity=False, **kwargs):
         token = False
         kwargs = kwargs['kwargs']
@@ -68,7 +72,6 @@ class EbizchargeController(http.Controller):
                 message = msg + ', '.join(message['missing_fields']) + '. '
                 if request.env.user._is_public():
                     message += _("Please sign in to complete your profile.")
-                    # update message if portal mode = b2b
                     if request.env['ir.config_parameter'].sudo().get_param('auth_signup.allow_uninvited', 'False').lower() == 'false':
                         message += _("If you don't have any account, please ask your salesperson to update your profile. ")
                 else:
@@ -78,7 +81,7 @@ class EbizchargeController(http.Controller):
                 'error': message
             }
 
-        if not token  and not request.env.user._is_public():
+        if not token and not request.env.user._is_public():
             res = {
                 'result': False,
                 'is_manage_screen': is_manage_screen,
@@ -95,69 +98,63 @@ class EbizchargeController(http.Controller):
         }
         return res
 
-    @http.route(['/payment/ebizcharge/get/token'], type='json', auth='public', csrf=False)
+    @http.route(['/payment/ebizcharge/get/token'], type='jsonrpc', auth='public', csrf=False)
     def ebizcharge_get_token_info(self, **kwargs):
         return request.env['payment.token'].get_payment_token_information(kwargs['pm_id'])
 
-    @http.route(['/delete/ebizcharge/token'], type='json', auth='public', csrf=False)
+    @http.route(['/delete/ebizcharge/token'], type='jsonrpc', auth='public', csrf=False)
     def ebizcharge_delete_token_info(self, **kwargs):
-        return request.env['payment.token'].get_payment_token_information(kwargs['pm_id'])
+        payment_token_id = request.env['payment.token'].sudo().browse(kwargs['pm_id']).exists()
+        if payment_token_id:
+            payment_token_id.token_action_archive()
+            return 'success'
+        return 'No record found for unique ID %s. It may have been deleted.' % (kwargs['pm_id'])
 
 
 class EbizChargeWebsiteSale(WebsiteSale):
 
-    @http.route(['/shop/payment'], type='http', auth="public", website=True, sitemap=False)
-    def shop_payment(self, **post):
-        res = super(EbizChargeWebsiteSale, self).shop_payment(post=post)
-        order = request.website.sale_get_order()
-        if res.status_code == 200:
-            request.env.user.partner_id.refresh_payment_methods()
-            if request.env.user.partner_id.ebiz_profile_id:
-                profile = request.env.user.partner_id.ebiz_profile_id
-            else:
-                profile = request.env['ebizcharge.instance.config'].sudo().search(
-                    [('website_ids', 'in', request.website.ids), ('is_website', '=', True), ('is_active', '=', True)])
-            show_ach = profile.merchant_data
-            show_credit_cards = profile.allow_credit_card_pay
-            allowed_commands = profile.ebiz_website_allowed_command
-            auth_only = True if allowed_commands == 'pre-auth' else False
-            odoo_partner = request.env['res.partner'].sudo().browse(res.qcontext['partner'].id).ensure_one()
-            if odoo_partner:
-                odoo_partner.sudo().with_context({'donot_sync': True, 'website':request.website.id}).ebiz_get_payment_methods()
-            payment_tokens = odoo_partner.payment_token_ids
-            payment_tokens |= odoo_partner.commercial_partner_id.sudo().payment_token_ids
-            card_narrations = profile.surcharge_terms
-            is_sur_able = False
-            surcharge_terms = ''
-            if profile.is_surcharge_enabled and profile.surcharge_type_id == 'DailyDiscount':
-                is_sur_able = True
-                surcharge_terms = profile.surcharge_terms
-            res.qcontext['tokens_sudo'] = res.qcontext['tokens_sudo'].filtered(lambda i:i.provider_id.code != 'ebizcharge')
-            res.qcontext['cardNarrations'] = card_narrations
-            res.qcontext['is_sur_able'] = is_sur_able
-            res.qcontext['allow_pay_surcharge'] = True if profile.is_surcharge_enabled else False
-            res.qcontext['surcharge_percent'] = profile.surcharge_percentage if profile.is_surcharge_enabled else 0
-            res.qcontext['surcharge_amount'] = 0.00
-            res.qcontext['show_surcharge_amt'] = False
-            res.qcontext['surcharge_terms'] = surcharge_terms
-            #res.qcontext['tokens'] = payment_tokens.filtered(lambda r: r.create_uid == request.env.user)
-            res.qcontext['tokens'] = payment_tokens.filtered(
-                lambda r: r.partner_id == request.env.user.partner_id and r.provider_id.code != "ebizcharge")
-            res.qcontext['ebiz_tokens'] = payment_tokens.filtered(
-                lambda r: r.partner_id == request.env.user.partner_id and r.provider_id.code == "ebizcharge")
-
-            res.qcontext['logIn'] = True if request.session['session_token'] else False
-            res.qcontext['showACH'] = show_ach
-            res.qcontext['showCreditCards'] = show_credit_cards
-            res.qcontext['authOnly'] = auth_only
-            res.qcontext['logIn'] = True if request.session['session_token'] else False
-        return res
+    def _get_shop_payment_values(self, order, **kwargs):
+        render_values = super()._get_shop_payment_values(order, **kwargs)
+        profile = request.env.user.partner_id.ebiz_profile_id or self.env['ebizcharge.instance.config'].sudo().search(
+            [('website_ids', 'in', request.website.ids), ('is_website', '=', True), ('is_active', '=', True)], limit=1)
+        show_ach = profile.merchant_data
+        show_credit_cards = profile.allow_credit_card_pay
+        allowed_commands = profile.ebiz_website_allowed_command
+        auth_only = allowed_commands == 'pre-auth'
+        odoo_partner = request.env['res.partner'].sudo().browse(render_values['partner'].id).ensure_one()
+        payment_tokens = odoo_partner.payment_token_ids
+        payment_tokens |= odoo_partner.commercial_partner_id.sudo().payment_token_ids
+        card_narrations = profile.surcharge_terms
+        is_sur_able = False
+        surcharge_terms = ''
+        if profile.is_surcharge_enabled and profile.surcharge_type_id == 'DailyDiscount':
+            is_sur_able = True
+            surcharge_terms = profile.surcharge_terms
+        render_values['tokens_sudo'] = render_values['tokens_sudo'].filtered(lambda i: i.provider_id.code != 'ebizcharge')
+        render_values['cardNarrations'] = card_narrations
+        render_values['is_sur_able'] = is_sur_able
+        render_values['allow_pay_surcharge'] = bool(profile.is_surcharge_enabled)
+        render_values['surcharge_percent'] = profile.surcharge_percentage if profile.is_surcharge_enabled else 0
+        render_values['surcharge_amount'] = 0.00
+        render_values['show_surcharge_amt'] = False
+        render_values['surcharge_terms'] = surcharge_terms
+        render_values['tokens'] = payment_tokens.filtered(
+            lambda r: r.partner_id == request.env.user.partner_id and r.provider_id.code != "ebizcharge")
+        render_values['ebiz_tokens'] = payment_tokens.filtered(
+            lambda r: r.partner_id == request.env.user.partner_id and r.provider_id.code == "ebizcharge")
+        render_values['logIn'] = bool(request.session['session_token'])
+        render_values['showACH'] = show_ach
+        render_values['showCreditCards'] = show_credit_cards
+        render_values['authOnly'] = auth_only
+        return render_values
 
     def _prepare_shop_payment_confirmation_values(self, order):
-        values = super(EbizChargeWebsiteSale, self)._prepare_shop_payment_confirmation_values(order)
-        values['surcharge_amount'] = order.transaction_ids[0].surcharge_amt if order.partner_id.ebiz_profile_id.is_surcharge_enabled else 0
-        values['surcharge_percent'] = order.transaction_ids[0].surcharge_percent if order.partner_id.ebiz_profile_id.is_surcharge_enabled else 0
-        values['allow_pay_surcharge'] = True if order.partner_id.ebiz_profile_id.is_surcharge_enabled else False
-        values['is_add_surcharge'] = True if order.partner_id.ebiz_profile_id.is_surcharge_enabled else False
+        values = super()._prepare_shop_payment_confirmation_values(order)
+        values['surcharge_amount'] = 0.0
+        values['surcharge_percent'] = 0.0
+        if order.transaction_ids:
+            values['surcharge_amount'] = order.transaction_ids[0].surcharge_amt if order.partner_id.ebiz_profile_id.is_surcharge_enabled else 0
+            values['surcharge_percent'] = order.transaction_ids[0].surcharge_percent if order.partner_id.ebiz_profile_id.is_surcharge_enabled else 0
+        values['allow_pay_surcharge'] = bool(order.partner_id.ebiz_profile_id.is_surcharge_enabled)
+        values['is_add_surcharge'] = bool(order.partner_id.ebiz_profile_id.is_surcharge_enabled)
         return values
-

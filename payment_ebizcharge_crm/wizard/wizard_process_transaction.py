@@ -2,6 +2,7 @@ from odoo import fields, models, api, _
 from odoo.exceptions import UserError, ValidationError
 import logging
 from ..models.ebiz_charge import message_wizard
+from ..tools import _year_selection_from_2000, _month_selection
 
 _logger = logging.getLogger(__name__)
 
@@ -22,22 +23,11 @@ class CustomMessageWizard(models.TransientModel):
 
     @api.model
     def year_selection(self):
-        today = fields.Date.today()
-        # year =  # replace 2000 with your a start year
-        year = 2000
-        max_year = today.year + 30
-        year_list = []
-        while year != max_year:  # replace 2030 with your end year
-            year_list.append((str(year), str(year)))
-            year += 1
-        return year_list
+        return _year_selection_from_2000()
 
     @api.model
     def month_selection(self):
-        m_list = []
-        for i in range(1, 13):
-            m_list.append((str(i), str(i)))
-        return m_list
+        return _month_selection()
 
     sale_order_id = fields.Many2one('sale.order')
     invoice_id = fields.Many2one('account.move')
@@ -141,7 +131,6 @@ class CustomMessageWizard(models.TransientModel):
         else:
             trans = self.invoice_id.sudo()._create_payment_transaction(vals)
         trans.write({'payment_token_id': token_id})
-        command = self._generate_transaction_command()
         resp = trans.sudo()._send_payment_request()
         if self.sale_order_id:
             self.sale_order_id.sudo().payment_action_capture()
@@ -206,7 +195,6 @@ class CustomMessageWizard(models.TransientModel):
             self.create_invoice()
         else:
             trans = self.invoice_id.sudo()._create_payment_transaction(vals)
-        command = self._generate_transaction_command()
         trans.write({'payment_token_id': self.ach_id})
         resp = trans.sudo()._send_payment_request()
         if resp['ResultCode'] == "D":
@@ -220,8 +208,7 @@ class CustomMessageWizard(models.TransientModel):
     def _generate_transaction_command(self):
         if self.is_check_or_credit == 'ach':
             return 'Check'
-        else:
-            return self.transaction_command or self.inv_transaction_command
+        return self.transaction_command or self.inv_transaction_command
 
     def validate_card(self):
         self.ensure_one()
@@ -247,21 +234,18 @@ class CustomMessageWizard(models.TransientModel):
             avs_result = self.get_avs_result(resp)
             if all([x == 'Match' for x in avs_result]) and resp['ResultCode'] == 'A':
                 return message_wizard('Successful!')
-            else:
-                return self.show_payment_response(resp)
+            return self.show_payment_response(resp)
         else:
             resp = self.process_new_card_transaction()
-            avs_result = self.get_avs_result(resp)
             if resp['ResultCode'] == 'A':
                 return message_wizard('Successful!')
-            else:
-                return self.show_payment_response(resp)
+            return self.show_payment_response(resp)
 
     def create_credit_card_payment_method(self):
         method = self.env.ref('payment_ebizcharge_crm.payment_method_ebizcharge').id
         params = {
             "account_holder_name": self.card_account_holder_name,
-            "payment_details": self.card_account_holder_name,
+            "payment_details": 'XXXXXXXXXXXX%s' % self.card_card_number[-4:],
             "payment_method_id": method,
             "card_number": self.card_card_number,
             "card_exp_year": self.card_exp_year,
@@ -287,7 +271,7 @@ class CustomMessageWizard(models.TransientModel):
             "account_holder_name": self.ach_account_holder_name,
             "payment_method_id": method,
             "account_number": self.ach_account,
-            'payment_details': self.ach_account,
+            'payment_details': 'XXXXX%s' % self.ach_account[-4:],
             "account_type": self.ach_account_type,
             "routing": self.ach_routing,
             "partner_id": self.partner_id.id,
@@ -333,7 +317,6 @@ class CustomMessageWizard(models.TransientModel):
             'InternalCardAuth': False,
             'CardPresent': False,
             'CardNumber': self.card_card_number,
-            # 'CardExpiration': self.card_card_expiration.strftime('%m%y'),
             "CardExpiration": "%s%s" % (self.card_exp_month, self.card_exp_year[2:] if self.card_exp_year else False),
             'CardCode': self.card_card_code,
             'AvsStreet': self.card_avs_street,

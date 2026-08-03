@@ -1,6 +1,7 @@
 from odoo import fields, models, api, _
 from datetime import datetime, timedelta
 from ..models.ebiz_charge import message_wizard
+from markupsafe import Markup
 
 
 class MessageWizard(models.TransientModel):
@@ -8,9 +9,7 @@ class MessageWizard(models.TransientModel):
     _description = "Message Wizard"
 
     def get_default(self):
-        if self.env.context.get("message", False):
-            return self.env.context.get("message")
-        return False
+        return self.env.context.get("message", False)
 
     text = fields.Text('Message', readonly=True, default=get_default)
     transaction_id = fields.Many2one('emv.device.transaction', string='Transaction')
@@ -18,8 +17,6 @@ class MessageWizard(models.TransientModel):
     is_surcharge = fields.Boolean()
     surcharge_subtotal = fields.Float()
     surcharge_percentage = fields.Float()
-    surcharge_amount = fields.Monetary()
-
     surcharge_total = fields.Monetary()
 
     partner_id = fields.Char(string='Partner')
@@ -38,12 +35,22 @@ class MessageWizard(models.TransientModel):
 
     currency_id = fields.Many2one('res.currency')
     is_ach = fields.Boolean()
+    enable_surcharge = fields.Boolean(string='Enable Surcharge')
     
     def action_confirm(self):
+        # Refresh a bulk parent (sale.order.payment.link.bulk / inv.payment.link.bulk)
+        # before returning, so its bulk lines reflect any source-record changes the
+        # preceding wizard made (e.g. surcharge toggle from the generate wizard).
+        bulk_model = self.env.context.get('bulk_regenerate_model')
+        bulk_id = self.env.context.get('bulk_regenerate_id')
+        if bulk_model and bulk_id:
+            record = self.env[bulk_model].browse(bulk_id).exists()
+            if record and hasattr(record, 'regenerate_line_ids'):
+                record.regenerate_line_ids()
         if self.transaction_id:
             self.transaction_id.action_check(trans=self.transaction_id.id)
         else:
-            pass
+            return {'type': 'ir.actions.act_window_close'}
 
 
 class SuccessPaymentMethods(models.TransientModel):
@@ -51,17 +58,15 @@ class SuccessPaymentMethods(models.TransientModel):
     _description = "Success Payment Methods"
 
     def get_default(self):
-        if self.env.context.get("message", False):
-            return self.env.context.get("message")
-        return False
+        return self.env.context.get("message", False)
 
     text = fields.Text('Message', readonly=True, default=get_default)
     wizard_process_id = fields.Many2one('wizard.order.process.transaction')
 
     def open_register_wizard(self):
         context = dict(self.env.context)
-        if 'move_context' in self._context:
-            context = dict(self._context['move_context'])
+        if 'move_context' in self.env.context:
+            context = dict(self.env.context['move_context'])
         context['active_model'] = 'account.move'
         return {
             'name': 'Register Payment',
@@ -85,7 +90,7 @@ class WizardDeleteToken(models.TransientModel):
     text = fields.Text('Message', readonly=True)
 
     def delete_record(self):
-        self.env[self.record_model].browse(self.record_id).unlink()
+        self.env[self.record_model].browse(self.record_id).token_action_archive()
         return message_wizard('The payment method has been deleted successfully!')
 
 
@@ -93,97 +98,66 @@ class WizardDeleteEmailPay(models.TransientModel):
     _name = 'wizard.delete.email.pay'
     _description = "Wizard Delete Email Pay"
 
-    record_id = fields.Integer('Record Id')
+    record_id = fields.Many2one('payment.request.bulk.email', 'Record Id')
     record_model = fields.Char('Record Model')
     text = fields.Text('Message', readonly=True)
 
+    def _prepare_sync_request_values(self, invoice_id, record):
+        return {
+            'name': record.name,
+            'customer_id': invoice_id.partner_id.id,
+            'email_id': invoice_id.partner_id.email,
+            'invoice_id': invoice_id.id,
+            'invoice_date': invoice_id.date,
+            'sales_person': self.env.user.id,
+            'amount': invoice_id.amount_total,
+            "currency_id": invoice_id.currency_id.id,
+            'amount_due': invoice_id.amount_residual_signed,
+            'tax': invoice_id.amount_untaxed_signed,
+            'invoice_due_date': invoice_id.invoice_date_due,
+            'sync_transaction_id': self.record_id.id,
+        }
+
     def delete_record(self):
-        values = self.env.context.get('kwargs_values')
+        res_ids = self.env.context.get('selected_line_ids')
         pending_received_msg = self.env.context.get('pending_received')
+        records = self.env[self.record_model].browse(res_ids)
         success = 0
-        for invoice in values:
-            odoo_invoice = self.env['account.move'].search([('id', '=', invoice['invoice_id'])])
-            instance = None
-            if odoo_invoice.partner_id.ebiz_profile_id:
-                instance = odoo_invoice.partner_id.ebiz_profile_id
+        for record in records:
+            invoice_id = record.invoice_id
+            instance = invoice_id.partner_id.ebiz_profile_id or None
 
             ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
             if pending_received_msg == 'Pending Requests':
                 form_url = ebiz.client.service.DeleteEbizWebFormPayment(**{
                     'securityToken': ebiz._generate_security_json(),
-                    'paymentInternalId': odoo_invoice.payment_internal_id,
+                    'paymentInternalId': invoice_id.payment_internal_id,
                 })
                 if form_url.Status == 'Success':
-                    odoo_invoice.ebiz_invoice_status = 'delete'
+                    invoice_id.write({'ebiz_invoice_status': 'delete'})
                     success += 1
-                    pending_payments = self.env['payment.request.bulk.email'].search([])
-                    for payment in pending_payments:
-                        if payment.transaction_history_line_pending:
-                            for pending in payment.transaction_history_line_pending:
-                                if pending.id == invoice['invoice_id']:
-                                    payment.transaction_history_line_pending = [[2, invoice['invoice_id']]]
-                                    dict2 = {
-                                        'name': invoice['name'],
-                                        'customer_name': odoo_invoice.partner_id.id,
-                                        'customer_id': str(odoo_invoice.partner_id.id),
-                                        'email_id': odoo_invoice.partner_id.email,
-                                        'invoice_id': odoo_invoice.id,
-                                        'invoice_date': odoo_invoice.date,
-                                        'sales_person': self.env.user.id,
-                                        'amount': odoo_invoice.amount_total,
-                                        "currency_id": odoo_invoice.currency_id.id,
-                                        'amount_due': odoo_invoice.amount_residual_signed,
-                                        'tax': odoo_invoice.amount_untaxed_signed,
-                                        'invoice_due_date': odoo_invoice.invoice_date_due,
-                                        'sync_transaction_id': payment.id,
-                                    }
-                                    new_sync_invoice = self.env['sync.request.payments.bulk'].create(dict2)
-                                    payment.transaction_history_line = [[4, new_sync_invoice.id]]
+                    dict2 = self._prepare_sync_request_values(invoice_id, record)
+                    new_sync_invoice = self.env['sync.request.payments.bulk'].create(dict2)
+                    self.record_id.transaction_history_line_pending = [fields.Command.unlink(record.id)]
+                    self.record_id.transaction_history_line = [fields.Command.link(new_sync_invoice.id)]
 
             elif pending_received_msg == 'Received Email Payments':
                 form_url = ebiz.client.service.MarkEbizWebFormPaymentAsApplied(**{
                     'securityToken': ebiz._generate_security_json(),
-                    'paymentInternalId': odoo_invoice.payment_internal_id,
+                    'paymentInternalId': invoice_id.payment_internal_id,
                 })
 
                 if form_url.Status == 'Success':
-                    odoo_invoice.email_received_payments = False
-                    odoo_invoice.ebiz_invoice_status = False
+                    invoice_id.write({'email_received_payments': False, 'ebiz_invoice_status': False})
                     success += 1
-                    received_payments = self.env['payment.request.bulk.email'].search([])
-                    for payment in received_payments:
-                        if payment.transaction_history_line_received:
-                            for pending in payment.transaction_history_line_received:
-                                if pending.id == invoice['invoice_id']:
-                                    payment.transaction_history_line_received = [[2, invoice['invoice_id']]]
-                                    dict2 = {
-                                        'name': invoice['name'],
-                                        'customer_name': odoo_invoice.partner_id.id,
-                                        'customer_id': str(odoo_invoice.partner_id.id),
-                                        'email_id': odoo_invoice.partner_id.email,
-                                        'invoice_id': odoo_invoice.id,
-                                        'invoice_date': odoo_invoice.date,
-                                        'sales_person': self.env.user.id,
-                                        'amount': odoo_invoice.amount_total,
-                                        "currency_id": odoo_invoice.currency_id.id,
-                                        'amount_due': odoo_invoice.amount_residual_signed,
-                                        'tax': odoo_invoice.amount_untaxed_signed,
-                                        'invoice_due_date': odoo_invoice.invoice_date_due,
-                                        'sync_transaction_id': payment.id,
-                                    }
-                                    new_sync_invoice = self.env['sync.request.payments.bulk'].create(dict2)
-                                    payment.transaction_history_line = [[4, new_sync_invoice.id]]
+                    dict2 = self._prepare_sync_request_values(invoice_id, record)
+                    new_sync_invoice = self.env['sync.request.payments.bulk'].create(dict2)
+                    self.record_id.transaction_history_line_received = [fields.Command.unlink(record.id)]
+                    self.record_id.transaction_history_line = [fields.Command.link(new_sync_invoice.id)]
 
-            odoo_invoice.save_payment_link = False
-            odoo_invoice.request_amount = 0
-            odoo_invoice.last_request_amount = 0
-        rec = self.env['payment.request.bulk.email'].browse([self.record_id]).exists()
-        if rec:
-            rec.search_transaction()
-        if pending_received_msg == 'Pending Requests':
-            return message_wizard(f'{success} request(s)  were successfully removed from {pending_received_msg}!')
-        elif pending_received_msg == 'Received Email Payments':
-            return message_wizard(f'{success} payment(s)  were successfully removed from {pending_received_msg}!')
+            invoice_id.write({'save_payment_link': False, 'request_amount': 0, 'last_request_amount': 0})
+        self.record_id.regenerate_line_ids()
+        return message_wizard(f'{success} payment(s)  were successfully removed from {pending_received_msg}!')
 
 
 class WizardDeletePaymentMethods(models.TransientModel):
@@ -195,39 +169,26 @@ class WizardDeletePaymentMethods(models.TransientModel):
     text = fields.Text('Message', readonly=True)
 
     def delete_record(self):
-        values = self.env.context.get('kwargs_values')
+        res_ids = self.env.context.get('selected_line_ids')
         pending_received_msg = self.env.context.get('pending_received')
+        records = self.env[self.record_model].browse(res_ids)
         success = 0
-        for record in values:
-            partner = self.env['res.partner'].browse([int(record.get('customer_id'))])
-            ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=partner.ebiz_profile_id)
+        for record in records:
+            ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=record.customer_id.ebiz_profile_id)
             if pending_received_msg == 'Pending Requests':
-                form_url = ebiz.client.service.DeleteEbizWebFormPayment(**{
+                ebiz.client.service.DeleteEbizWebFormPayment(**{
                     'securityToken': ebiz._generate_security_json(),
-                    'paymentInternalId': record['payment_internal_id'],
+                    'paymentInternalId': record.payment_internal_id,
                 })
                 success += 1
-                pending_methods = self.env['payment.method.ui'].search([])
-                for method in pending_methods:
-                    if method.transaction_history_line_pending:
-                        for pending in method.transaction_history_line_pending:
-                            try:
-                                if pending.id == record['id']:
-                                    method.transaction_history_line_pending = [[2, record['id']]]
-                            except Exception:
-                                pass
+                record.sync_transaction_id_pending.transaction_history_line_pending = [fields.Command.delete(record.id)]
             elif pending_received_msg == 'Added Payment Methods':
-                form_url = ebiz.client.service.MarkEbizWebFormPaymentAsApplied(**{
+                ebiz.client.service.MarkEbizWebFormPaymentAsApplied(**{
                     'securityToken': ebiz._generate_security_json(),
-                    'paymentInternalId': record['payment_internal_id'],
+                    'paymentInternalId': record.payment_internal_id,
                 })
                 success += 1
-                received_methods = self.env['payment.method.ui'].search([])
-                for method in received_methods:
-                    if method.transaction_history_line_received:
-                        for pending in method.transaction_history_line_received:
-                            if pending.id == record['id']:
-                                method.transaction_history_line_received = [[2, record['id']]]
+                record.sync_transaction_id_received.transaction_history_line_received = [fields.Command.delete(record.id)]
         if pending_received_msg == 'Pending Requests':
             return message_wizard(f'{success} request(s) were successfully removed from Pending Requests!')
         elif pending_received_msg == 'Added Payment Methods':
@@ -244,16 +205,11 @@ class WizardDeleteDownloadLogs(models.TransientModel):
     text = fields.Text('Message', readonly=True)
 
     def delete_record(self):
-        values = self.env.context.get('kwargs_values')
-        success = 0
-        for record in values:
-            record_check = self.env['sync.logs'].search(
-                [('invoice_number', '=', record['invoice_number']), ('ref_num', '=', record['ref_num'])])
-            if record_check:
-                record_check.unlink()
-                success += 1
-        else:
-            return message_wizard(f'{success} payment(s) were successfully cleared from the Log!')
+        record_ids = self.env.context.get('record_ids')
+        log_ids = self.env['sync.logs'].browse(record_ids)
+        success = len(log_ids)
+        log_ids.unlink()
+        return message_wizard(f'{success} payment(s) were successfully cleared from the Log!')
 
 
 class WizardDeleteUploadLogs(models.TransientModel):
@@ -268,14 +224,12 @@ class WizardDeleteUploadLogs(models.TransientModel):
         values = self.env.context.get('list_of_records')
         model_type = self.env.context.get('model')
         success = 0
-
         for record in values:
             record_to_dell = self.env[model_type].search([('id', '=', record)])
             if record_to_dell:
                 record_to_dell.unlink()
                 success += 1
-        else:
-            return message_wizard(f'{success} {self.record_model}(s) were successfully cleared from the Log!')
+        return message_wizard(f'{success} {self.record_model}(s) were successfully cleared from the Log!')
 
 
 class WizardDeleteInactiveCustomer(models.TransientModel):
@@ -287,24 +241,20 @@ class WizardDeleteInactiveCustomer(models.TransientModel):
     text = fields.Text('Message', readonly=True)
 
     def delete_record(self):
-        values = self.env.context.get('kwargs_values')
+        res_ids = self.env.context.get('selected_line_ids')
+        records = self.env['list.of.customers'].browse(res_ids)
         success = 0
-        for record in values:
-            ebiz_customer = self.env['res.partner'].search([('id', '=', record)])
-            if ebiz_customer:
-                instance = None
-                if ebiz_customer.ebiz_profile_id:
-                    instance = ebiz_customer.ebiz_profile_id
-                ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
-                templates = ebiz.client.service.MarkCustomerAsInactive(**{
+        for record in records:
+            ebiz_customer = record.customer_id
+            if ebiz_customer and ebiz_customer.ebiz_internal_id:
+                ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=ebiz_customer.ebiz_profile_id or None)
+                ebiz.client.service.MarkCustomerAsInactive(**{
                     'securityToken': ebiz._generate_security_json(),
                     'customerInternalId': ebiz_customer.ebiz_internal_id,
                 })
                 ebiz_customer.active = False
                 success += 1
-
-        else:
-            return message_wizard(f'{success} customer(s) were successfully deactivated in Odoo and EBizCharge Hub!')
+        return message_wizard(f'{success} customer(s) were successfully deactivated in Odoo and EBizCharge Hub!')
 
 
 class WizardReceivedEmailPay(models.TransientModel):
@@ -325,22 +275,15 @@ class WizardReceivedEmailPayPaymentLink(models.TransientModel):
     _name = 'wizard.receive.email.payment.link'
     _description = "Wizard Receive Email Payment Link"
 
-    record_id = fields.Integer('Record Id')
     odoo_invoice = fields.Many2one('account.move', 'Odoo Invoice')
     text = fields.Text('Message', readonly=True)
     order_id = fields.Many2one('sale.order', 'Order')
     is_pay_link = fields.Boolean(string='Pay Link')
     invoice_ids = fields.Many2many('account.move', string='Invoices')
     sale_ids = fields.Many2many('sale.order', string='Orders')
+    batch_ids = fields.Many2many('sync.batch.processing', string='Batch Processing')
 
-    def send_email(self):
-        if self.order_id:
-            record = self.order_id
-        else:
-            record = self.env['account.move'].search([('id', '=', self.record_id)])
-        instance = None
-        if record.partner_id.ebiz_profile_id:
-            instance = record.partner_id.ebiz_profile_id
+    def invalidate_existing_payment_link(self, record, instance):
         if record.save_payment_link:
             ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
             ebiz.client.service.DeleteEbizWebFormPayment(**{
@@ -348,229 +291,164 @@ class WizardReceivedEmailPayPaymentLink(models.TransientModel):
                 'paymentInternalId': record.payment_internal_id,
             })
             if record and  record.save_payment_link and not record.is_email_request:
-                message_log = 'EBizCharge Payment Link invalidated: '+str(record.save_payment_link)
-                record.message_post(body=message_log)
+                record.message_post(
+                    body=Markup(
+                        'EBizCharge Payment Link invalidated: <a href="%s" target="_blank">%s</a>' % (
+                            record.save_payment_link, record.save_payment_link)
+                    ),
+                    message_type="comment",
+                )
+
             record.save_payment_link = False
-        if 'from_payment_link' in self.env.context:
-            instance = False
-            is_profile = False
-            allow_credit_card_pay = False
-            merchant_data = False
-            if record.partner_id.ebiz_profile_id:
-                allow_credit_card_pay = record.partner_id.ebiz_profile_id.enable_cvv
-                merchant_data = record.partner_id.ebiz_profile_id.merchant_data
-                instance = record.partner_id.ebiz_profile_id
-                is_profile = True
-            return {
-                'name': 'Register Payment',
-                'view_type': 'form',
-                'view_mode': 'form',
-                'res_model': 'custom.register.payment',
-                'view_id': False,
-                'type': 'ir.actions.act_window',
-                'target': 'new',
-                'context': {
-                    'default_amount': record.ebiz_amount_residual,
-                    'default_date': datetime.now().date(),
-                    'default_ebiz_receipt_emails': record.partner_id.email,
-                    'default_order_id': record.id,
-                    'default_memo': record.name,
-                    'partner_id': record.partner_id.id,
-                    'sub_partner_id': record.partner_id.id,
-                    'default_card_functionality_hide': allow_credit_card_pay,
-                    'default_ach_functionality_hide': merchant_data,
-                    'default_is_ebiz_profile': is_profile,
-                    'default_ebiz_profile_id': instance.id,
-                    'default_required_security_code': instance.verify_card_before_saving,
-                }
+
+    def _handle_payment_link_context(self, record):
+        self.invalidate_existing_payment_link(record, record.partner_id.ebiz_profile_id or None)
+        profile = record.partner_id.ebiz_profile_id
+        instance = profile or False
+        is_profile = bool(profile)
+        allow_credit_card_pay = profile.enable_cvv if profile else False
+        merchant_data = profile.merchant_data if profile else False
+        return {
+            'name': 'Register Payment',
+            'view_type': 'form',
+            'view_mode': 'form',
+            'res_model': 'custom.register.payment',
+            'view_id': False,
+            'type': 'ir.actions.act_window',
+            'target': 'new',
+            'context': {
+                'default_amount': record.ebiz_amount_residual,
+                'default_date': datetime.now().date(),
+                'default_ebiz_receipt_emails': record.partner_id.email,
+                'default_order_id': record.id,
+                'default_memo': record.name,
+                'partner_id': record.partner_id.id,
+                'sub_partner_id': record.partner_id.id,
+                'default_card_functionality_hide': allow_credit_card_pay,
+                'default_ach_functionality_hide': merchant_data,
+                'default_is_ebiz_profile': is_profile,
+                'default_ebiz_profile_id': instance.id,
+                'default_required_security_code': instance.verify_card_before_saving,
             }
-        elif 'batch_processing' in self.env.context:
-            rec = self.env.ref('payment_ebizcharge_crm.my_record_78')
-            return rec.with_context(for_batch_processing=True).process_invoices(self.env.context.get('kwargs'))
-        elif self.is_pay_link and self.invoice_ids:
-            payment_lines = []
-            for inv in self.invoice_ids:
-                if inv and inv.payment_state not in ("paid", "in_payment"):
-                    payment_line = {
-                        "invoice_id": int(inv.id),
-                        "name": inv.name,
-                        "customer_name": inv.partner_id.id,
-                        "amount_due": inv.amount_residual_signed,
-                        "amount_residual_signed": inv.amount_residual_signed,
-                        "amount_total_signed": inv.amount_total,
-                        "request_amount": inv.amount_residual_signed,
-                        "odoo_payment_link": inv.odoo_payment_link,
-                        "currency_id": self.env.user.currency_id.id,
-                        "email_id": inv.partner_id.email,
-                        "ebiz_profile_id": inv.partner_id.ebiz_profile_id.id,
-                    }
-                    payment_lines.append([0, 0, payment_line])
-                profile = inv.partner_id.ebiz_profile_id.id
-            wiz = self.env['wizard.ebiz.generate.link.payment.bulk'].with_context(
-                profile=profile).create(
-                {'payment_lines': payment_lines,
-                 'invoice_link': True,
-                 'ebiz_profile_id': profile})
-            action = self.env.ref('payment_ebizcharge_crm.wizard_generate_link_form_views_action').read()[0]
-            action['res_id'] = wiz.id
-            action['context'] = self.env.context
-            return action
-        elif self.sale_ids:
-            payment_lines = []
-            profile = False
-            for order in self.sale_ids:
-                if order.save_payment_link:
-                    ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=order.partner_id.ebiz_profile_id)
-                    ebiz.client.service.DeleteEbizWebFormPayment(**{
-                        'securityToken': ebiz._generate_security_json(),
-                        'paymentInternalId': order.payment_internal_id,
-                    })
-                    if order and order.save_payment_link and not order.is_email_request:
-                        message_log = 'EBizCharge Payment Link invalidated: ' + str(order.save_payment_link)
-                        order.message_post(body=message_log)
-                    order.save_payment_link = False
-                    order.request_amount = False
-                search_so = self.env['sale.order'].search([('id', '=', order.id)], limit=1)
-                if search_so:
-                    if not search_so.save_payment_link:
-                        payment_line = {
-                            "order_id": int(search_so.id),
-                            "partner_id": search_so.partner_id.id,
-                            "transaction_type": search_so.partner_id.ebiz_profile_id.gpl_pay_sale,
-                            "amount_total_signed": search_so.amount_total,
-                            "request_amount": search_so.ebiz_order_amount_residual,
-                            "so_payment_link": search_so.odoo_payment_link,
-                            "currency_id": self.env.user.currency_id.id,
-                            "email_id": search_so.partner_id.email,
-                            "ebiz_profile_id": search_so.partner_id.ebiz_profile_id.id,
-                        }
-                        payment_lines.append([0, 0, payment_line])
-                    profile = search_so.partner_id.ebiz_profile_id.id
-            wiz = self.env['wizard.generate.so.link.payment'].with_context(
-                profile=profile).create(
-                {'payment_lines': payment_lines,
-                 'sale_link': True,
-                 'ebiz_profile_id': profile})
-            action = \
-                self.env.ref('payment_ebizcharge_crm.wizard_generate_so_link_form_views_action').read()[0]
-            action['res_id'] = wiz.id
-            action['context'] = self.env.context
-            return action
+        }
 
-        elif self.odoo_invoice and 'email_pay' not in self.env.context:
+    def _handle_batch_processing(self):
+        for batch_record in self.batch_ids.filtered('generated_link'):
+            invoice = batch_record.invoice_id
+            self.invalidate_existing_payment_link(invoice, invoice.partner_id.ebiz_profile_id or None)
+        return self.batch_ids.with_context(for_batch_processing=True).process_invoices()
+
+    def _handle_invoice_pay_link(self):
+        payment_lines = []
+        for inv in self.invoice_ids:
+            if inv and inv.payment_state not in ("paid", "in_payment"):
+                payment_line = {
+                    "invoice_id": inv.id,
+                    "name": inv.name,
+                    "customer_name": inv.partner_id.id,
+                    "amount_due": inv.amount_residual_signed,
+                    "amount_residual_signed": inv.amount_residual_signed,
+                    "amount_total_signed": inv.amount_total,
+                    "request_amount": inv.amount_residual_signed,
+                    "odoo_payment_link": inv.odoo_payment_link,
+                    "currency_id": self.env.user.currency_id.id,
+                    "email_id": inv.partner_id.email,
+                    "ebiz_profile_id": inv.partner_id.ebiz_profile_id.id,
+                }
+                payment_lines.append(fields.Command.create(payment_line))
+            profile = inv.partner_id.ebiz_profile_id.id
+        wiz = self.env['wizard.ebiz.generate.link.payment.bulk'].with_context(
+            profile=profile).create(
+            {'payment_lines': payment_lines,
+             'invoice_link': True,
+             'ebiz_profile_id': profile})
+        action = self.env.ref('payment_ebizcharge_crm.wizard_generate_link_form_views_action').read()[0]
+        action['res_id'] = wiz.id
+        action['context'] = self.env.context
+        return action
+
+    def _handle_sale_ids(self):
+        payment_lines = []
+        profile = False
+        for order in self.sale_ids:
+            payment_lines.append(fields.Command.create({
+                "order_id": order.id,
+                "partner_id": order.partner_id.id,
+                "transaction_type": order.partner_id.ebiz_profile_id.gpl_pay_sale,
+                "amount_total_signed": order.amount_total,
+                "request_amount": order.ebiz_order_amount_residual,
+                "so_payment_link": order.odoo_payment_link,
+                "currency_id": self.env.user.currency_id.id,
+                "email_id": order.partner_id.email,
+                "ebiz_profile_id": order.partner_id.ebiz_profile_id.id,
+            }))
+            profile = order.partner_id.ebiz_profile_id.id
+        wiz = self.env['wizard.generate.so.link.payment'].with_context(
+            profile=profile).create(
+            {'payment_lines': payment_lines,
+             'sale_link': True,
+             'ebiz_profile_id': profile})
+        action = self.env.ref('payment_ebizcharge_crm.wizard_generate_so_link_form_views_action').read()[0]
+        action['res_id'] = wiz.id
+        action['context'] = self.env.context
+        return action
+
+    def _handle_generate_payment_link(self, record, instance):
+        self.invalidate_existing_payment_link(record, instance)
+        self.odoo_invoice.request_amount -= self.odoo_invoice.last_request_amount
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Generate Payment Link'),
+            'res_model': 'ebiz.payment.link.wizard',
+            'target': 'new',
+            'view_mode': 'form',
+            'view_type': 'form',
+            'context': {
+                'default_ebiz_profile_id': record.partner_id.ebiz_profile_id.id,
+                'active_id': record.id,
+                'active_model': 'account.move',
+            }
+        }
+
+    def _handle_email_pay_request(self, record):
+        if 'email_pay' in self.env.context and self.odoo_invoice:
             self.odoo_invoice.request_amount -= self.odoo_invoice.last_request_amount
-            return {'type': 'ir.actions.act_window',
-                    'name': _('Generate Payment Link'),
-                    'res_model': 'ebiz.payment.link.wizard',
-                    'target': 'new',
-                    'view_mode': 'form',
-                    'view_type': 'form',
-                    'context': {
-                        'default_ebiz_profile_id': record.partner_id.ebiz_profile_id.id,
-                        'active_id': record.id,
-                        'active_model': 'account.move',
-                    }}
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Email Pay Request'),
+            'res_model': 'email.invoice',
+            'target': 'new',
+            'view_mode': 'form',
+            'view_type': 'form',
+            'context': {
+                'default_contacts_to': [fields.Command.set([record.partner_id.id])],
+                'default_record_id': record.id,
+                'default_partner_ids': [fields.Command.set(record.partner_id.ids)],
+                'default_ebiz_profile_id': record.partner_id.ebiz_profile_id.id,
+                'default_currency_id': record.currency_id.id,
+                'default_amount': record.amount_residual if record.amount_residual else record.amount_total,
+                'default_model_name': 'account.move',
+                'default_email_customer': str(record.partner_id.email if record.partner_id.email else ''),
+                'selection_check': 1,
+            }
+        }
 
+    def send_email(self):
+        record = self.order_id or self.odoo_invoice
+        instance = record.partner_id.ebiz_profile_id or None
+        if 'from_payment_link' in self.env.context:
+            return self._handle_payment_link_context(record)
+        elif self.batch_ids:
+            return self._handle_batch_processing()
+        elif self.is_pay_link and self.invoice_ids:
+            return self._handle_invoice_pay_link()
+        elif self.sale_ids:
+            return self._handle_sale_ids()
+        elif self.odoo_invoice and 'email_pay' not in self.env.context:
+            return self._handle_generate_payment_link(record, instance)
         else:
-            if 'email_pay' in self.env.context and self.odoo_invoice:
-                self.odoo_invoice.request_amount -= self.odoo_invoice.last_request_amount
-            return {'type': 'ir.actions.act_window',
-                    'name': _('Email Pay Request'),
-                    'res_model': 'email.invoice',
-                    'target': 'new',
-                    'view_mode': 'form',
-                    'view_type': 'form',
-                    'context': {
-                        'default_contacts_to': [[6, 0, [record.partner_id.id]]],
-                        'default_record_id': record.id,
-                        'default_partner_ids': [(6,0,  record.partner_id.ids)],
-                        'default_ebiz_profile_id': record.partner_id.ebiz_profile_id.id,
-                        'default_currency_id': record.currency_id.id,
-                        'default_amount': record.amount_residual if record.amount_residual else record.amount_total,
-                        'default_model_name': 'account.move',
-                        'default_email_customer': str(record.partner_id.email if record.partner_id.email else ''),
-                        'selection_check': 1,
-                    }}
+            return self._handle_email_pay_request(record)
 
-    # def send_email(self):
-    #     if self.order_id:
-    #         record = self.order_id
-    #     else:
-    #         record = self.env['account.move'].search([('id', '=', self.record_id)])
-    #     instance = None
-    #     if record.partner_id.ebiz_profile_id:
-    #         instance = record.partner_id.ebiz_profile_id
-    #     if record.save_payment_link:
-    #         ebiz = self.env['ebiz.charge.api'].get_ebiz_charge_obj(instance=instance)
-    #         ebiz.client.service.DeleteEbizWebFormPayment(**{
-    #             'securityToken': ebiz._generate_security_json(),
-    #             'paymentInternalId': record.payment_internal_id,
-    #         })
-    #         record.save_payment_link = False
-    #     if 'from_payment_link' in self.env.context:
-    #         instance = False
-    #         is_profile = False
-    #         allow_credit_card_pay = False
-    #         merchant_data = False
-    #         if record.partner_id.ebiz_profile_id:
-    #             allow_credit_card_pay = record.partner_id.ebiz_profile_id.enable_cvv
-    #             merchant_data = record.partner_id.ebiz_profile_id.merchant_data
-    #             instance = record.partner_id.ebiz_profile_id
-    #             is_profile = True
-    #         return {
-    #             'name': 'Register Payment',
-    #             'view_type': 'form',
-    #             'view_mode': 'form',
-    #             'res_model': 'custom.register.payment',
-    #             'view_id': False,
-    #             'type': 'ir.actions.act_window',
-    #             'target': 'new',
-    #             'context': {
-    #                 'default_amount': record.ebiz_amount_residual,
-    #                 'default_date': datetime.now().date(),
-    #                 'default_ebiz_receipt_emails': record.partner_id.email,
-    #                 'default_order_id': record.id,
-    #                 'default_memo': record.name,
-    #                 'partner_id': record.partner_id.id,
-    #                 'sub_partner_id': record.partner_id.id,
-    #                 'default_card_functionality_hide': allow_credit_card_pay,
-    #                 'default_ach_functionality_hide': merchant_data,
-    #                 'default_is_ebiz_profile': is_profile,
-    #                 'default_ebiz_profile_id': instance.id,
-    #                 'default_required_security_code': instance.verify_card_before_saving,
-    #             }
-    #         }
-
-    #     elif self.odoo_invoice:
-    #         self.odoo_invoice.request_amount -= self.odoo_invoice.last_request_amount
-    #         return {'type': 'ir.actions.act_window',
-    #                 'name': _('Generate Payment Link'),
-    #                 'res_model': 'ebiz.payment.link.wizard',
-    #                 'target': 'new',
-    #                 'view_mode': 'form',
-    #                 'view_type': 'form',
-    #                 'context': {
-    #                     'default_ebiz_profile_id': record.partner_id.ebiz_profile_id.id,
-    #                     'active_id': record.id,
-    #                     'active_model': 'account.move',
-    #                 }}
-    #     else:
-    #         return {'type': 'ir.actions.act_window',
-    #                 'name': _('Email Pay Request'),
-    #                 'res_model': 'email.invoice',
-    #                 'target': 'new',
-    #                 'view_mode': 'form',
-    #                 'view_type': 'form',
-    #                 'context': {
-    #                     'default_contacts_to': [[6, 0, [record.partner_id.id]]],
-    #                     'default_record_id': record.id,
-    #                     'default_ebiz_profile_id': record.partner_id.ebiz_profile_id.id,
-    #                     'default_currency_id': record.currency_id.id,
-    #                     'default_amount': record.amount_residual if record.amount_residual else record.amount_total,
-    #                     'default_model_name': 'account.move',
-    #                     'default_email_customer': str(record.partner_id.email if record.partner_id.email else ''),
-    #                     'selection_check': 1,
-    #                 }}
 
 
 class WizardCreditNoteValidation(models.TransientModel):
@@ -581,7 +459,7 @@ class WizardCreditNoteValidation(models.TransientModel):
     text = fields.Text('Message', readonly=True)
 
     def proceed(self):
-        context = dict(self._context)
+        context = dict(self.env.context)
         context['bypass_credit_note_restriction'] = True
         return self.invoice_id.with_context(context).action_reverse()
 
@@ -603,8 +481,11 @@ class EmailPayMessageLine(models.TransientModel):
 
     message_id = fields.Many2one('wizard.email.pay.message')
     status = fields.Char("Status")
+    display_tooltip_message = fields.Char("Tooltip Message")
+    should_show_icon = fields.Boolean()
     customer_id = fields.Integer("Customer ID")
-    number = fields.Many2one('account.move', "Number")
+    email = fields.Char("Email")
+    invoice_id = fields.Many2one('account.move', "Number")
     customer_name = fields.Many2one('res.partner', string="Customer")
 
 
@@ -627,6 +508,8 @@ class MultiPaymentMsgLine(models.TransientModel):
     status = fields.Char("Status")
     customer_id = fields.Integer("Customer ID")
     email_address = fields.Char("Email")
+    should_show_icon = fields.Boolean()
+    display_tooltip_message = fields.Char("Tooltip Message")
     customer_name = fields.Many2one('res.partner', string="Customer")
 
 

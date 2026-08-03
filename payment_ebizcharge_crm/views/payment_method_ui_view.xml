@@ -1,13 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-
-        <data noupdate="1">
-            <record id="my_record_04" model="payment.method.ui">
-                <field name="add_filter">0</field>
-            </record>
-        </data>
-
         <record id="form_view_request_payment_method_ui" model="ir.ui.view">
             <field name="name">Request Payment Methods</field>
             <field name="model">payment.method.ui</field>
@@ -18,7 +11,6 @@
                     </h1>
                     <br/>
                     <field invisible="1" name="company_ids"/>
-                    <field invisible="1" name="is_reopened"/>
                     <notebook>
                         <page string="Send Requests">
                             <group>
@@ -29,13 +21,11 @@
                                 </group>
                             </group>
                             <button class="oe_highlight" name="search_customers" string="Refresh" style="height: 23px;padding-top: 1px;" type="object"/>
-                            <group col="4" invisible="not transaction_history_line">
-                                <group/>
-                                <group/>
-                            </group>
-                            <field class="notebook_width" invisible="not transaction_history_line" mode="list" name="transaction_history_line" widget="payment_method_ui">
+                            <field class="mt-3" invisible="not transaction_history_line" mode="list" name="transaction_history_line" widget="x2many_selection_actions">
                                 <list create="false" delete="false" limit="15" no_open="1" string="Transaction Lines">
-                                    <field name="customer_name" readonly="1" widget="selection"/>
+                                    <header>
+                                        <button class="btn-primary" name="send_request_payment" type="object" string="SEND REQUEST"/>
+                                    </header>
                                     <field name="customer_id" readonly="1"/>
                                     <field name="customer_phone" readonly="1"/>
                                     <field name="email_id" readonly="1"/>
@@ -58,28 +48,26 @@
                             <group>
                                 <group>
                                     <label class="text-nowrap" for="ebiz_profile_pending_id" string="EBizCharge Merchant Account"/>
-                                    <field domain="[('is_valid_credential', '=', True), ('is_active', '=', True),'|', ('company_ids', 'in', company_ids), ('company_ids', '=', False)]" name="ebiz_profile_pending_id" nolabel="1" options="{'no_create': True, 'no_open': True, 'no_quick_create': True}" string="EBizCharge Merchant Account"/>
+                                    <field domain="[('is_valid_credential', '=', True), ('is_active', '=', True), '|', ('company_ids', 'in', company_ids), ('company_ids', '=', False)]" name="ebiz_profile_pending_id" nolabel="1" options="{'no_create': True, 'no_open': True, 'no_quick_create': True}" string="EBizCharge Merchant Account"/>
+                                </group>
+                                <group/>
+                            </group>
+                            <group>
+                                <group>
                                     <field name="start_date"/>
                                 </group>
                                 <group>
-                                    <label class="text-nowrap" for="is_adjustment" string=" "/>
-                                    <field invisible="0" name="is_adjustment" nolabel="1" readonly="1"/>
                                     <field name="end_date"/>
                                 </group>
                             </group>
-                            <group col="2">
-                                <group>
-                                    <button class="oe_highlight" context="{'from_pending_button': True}" name="create_pending_request_record" string="Refresh" style="height: 23px;padding-top: 1px;" type="object"/>
-                                </group>
-                            </group>
-                            <group col="4" invisible="not transaction_history_line_pending">
-                                <group></group>
-                                <group></group>
-                            </group>
-                            <field class="notebook_width" invisible="not transaction_history_line_pending" mode="list" name="transaction_history_line_pending" widget="payment_method_ui">
+                            <button class="oe_highlight" context="{'from_pending_button': True}" name="create_pending_request_record" string="Refresh" style="height: 23px;padding-top: 1px;" type="object"/>
+                            <field class="mt-3" invisible="not transaction_history_line_pending" mode="list" name="transaction_history_line_pending" widget="x2many_selection_actions">
                                 <list create="false" delete="false" limit="15" no_open="1" string="Transaction Lines">
-                                    <field name="id" column_invisible="1"/>
-                                    <field name="customer_name" readonly="1" widget="selection"/>
+                                    <header>
+                                        <button class="btn-primary" name="resend_email" type="object" string="RESEND"/>
+                                        <button class="btn-primary" name="delete_invoice" type="object" string="REMOVE"/>
+                                    </header>
+                                    <field column_invisible="1" name="id" readonly="1"/>
                                     <field name="customer_id" readonly="1"/>
                                     <field name="email_id" readonly="1"/>
                                     <field name="date_time" readonly="1"/>
@@ -103,28 +91,25 @@
                             <group>
                                 <group>
                                     <label class="text-nowrap" for="ebiz_profile_received_id" string="EBizCharge Merchant Account"/>
-                                    <field domain="[('is_valid_credential', '=', True), ('is_active', '=', True),'|', ('company_ids', 'in', company_ids), ('company_ids', '=', False)]" name="ebiz_profile_received_id" nolabel="1" options="{'no_create': True, 'no_open': True, 'no_quick_create': True}" string="EBizCharge Merchant Account"/>
+                                    <field domain="[('is_valid_credential', '=', True), ('is_active', '=', True), '|', ('company_ids', 'in', company_ids), ('company_ids', '=', False)]" name="ebiz_profile_received_id" nolabel="1" options="{'no_create': True, 'no_open': True, 'no_quick_create': True}" string="EBizCharge Merchant Account"/>
+                                </group>
+                                <group/>
+                            </group>
+                            <group>
+                                <group>
                                     <field name="start_date_received"/>
                                 </group>
                                 <group>
-                                    <label class="text-nowrap" for="is_adjustment" string=" "/>
-                                    <field invisible="0" name="is_adjustment" nolabel="1" readonly="1"/>
                                     <field name="end_date_received"/>
                                 </group>
                             </group>
-                            <group col="2">
-                                <group>
-                                    <button class="oe_highlight" context="{'from_received_button': True}" name="create_received_request_record" string="Refresh" style="height: 23px;padding-top: 1px;" type="object"/>
-                                </group>
-                            </group>
-                            <group col="4" invisible="not transaction_history_line_received">
-                                <group></group>
-                                <group/><group/>
-                            </group>
-                            <field class="notebook_width" invisible="not transaction_history_line_received" mode="list" name="transaction_history_line_received" widget="payment_method_ui">
+                            <button class="oe_highlight" context="{'from_received_button': True}" name="create_received_request_record" string="Refresh" style="height: 23px;padding-top: 1px;" type="object"/>
+                            <field class="mt-3" invisible="not transaction_history_line_received" mode="list" name="transaction_history_line_received" widget="x2many_selection_actions">
                                 <list create="false" delete="false" limit="15" no_open="1" string="Transaction Lines">
-                                    <field name="id" column_invisible="1"/>
-                                    <field name="customer_name" readonly="1" widget="selection"/>
+                                    <header>
+                                        <button class="btn-primary" name="delete_invoice_added" type="object" string="REMOVE"/>
+                                    </header>
+                                    <field column_invisible="1" name="id" readonly="1"/>
                                     <field name="customer_id" readonly="1"/>
                                     <field name="email_id" readonly="1"/>
                                     <field name="date_time" readonly="1"/>
@@ -146,20 +131,18 @@
                             </div>
                         </page>
                     </notebook>
-                    <br/><br/><br/><br/><br/><br/><br/>
                 </form>
             </field>
         </record>
 
-        <record id="action_request_payment_method_ui" model="ir.actions.act_window">
+        <record id="action_request_payment_method_ui" model="ir.actions.server">
             <field name="name">Request Payment Methods</field>
-            <field name="res_model">payment.method.ui</field>
-            <field name="res_id" ref="my_record_04"/>
-            <field name="target">inline</field>
-            <field name="view_mode">form,list</field>
+            <field name="type">ir.actions.server</field>
+            <field name="model_id" ref="payment_ebizcharge_crm.model_payment_method_ui"/>
+            <field name="state">code</field>
+            <field name="code">action = model.action_open_request_payment_methods()</field>
         </record>
 
-        <menuitem action="action_request_payment_method_ui" id="payment_method_ui" name="Request Payment Methods" parent="ebiz_email_template_menu_main" sequence="2"/>
-
+        <menuitem action="action_request_payment_method_ui" id="payment_method_ui" name="Request Payment Methods" parent="ebiz_email_template_menu_main" sequence="5"/>
     </data>
 </odoo>

@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 
@@ -9,7 +7,7 @@ class EbizchargeInstanceConfig(models.Model):
 
     def _default_is_website_installed(self):
         web = self.env['ir.module.module'].sudo().search([('name', '=', 'website_sale')])
-        return True if web.state == "installed" else False
+        return web.state == "installed"
 
     website_ids = fields.Many2many('website')
     is_website = fields.Boolean()
@@ -19,7 +17,7 @@ class EbizchargeInstanceConfig(models.Model):
     def _compute_is_website_installed(self):
         web = self.env['ir.module.module'].sudo().search([('name', '=', 'website_sale')])
         for se in self:
-            se.is_website_installed = True if web else False
+            se.is_website_installed = bool(web)
 
     def _default_website(self):
         return self.env['website'].search([('company_id', '=', self.env.company.id)], limit=1)
@@ -35,12 +33,12 @@ class EbizchargeInstanceConfig(models.Model):
         return [(model.model, model.name) for model in models]
 
     def write(self, vals_list):
-        rec = super(EbizchargeInstanceConfig, self).write(vals_list)
+        super().write(vals_list)
         if not self.is_website and self.website_ids:
             self.website_ids = False
         if self.is_website and not self.website_ids:
             raise UserError('Please uncheck website button or add a website.')
-        return rec
+        return True
 
 
 class WebsiteSettings(models.Model):

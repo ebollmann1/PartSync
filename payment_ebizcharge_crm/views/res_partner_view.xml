@@ -11,7 +11,21 @@
                     <span class="o_stat_text">Credit Cards</span>
                 </xpath>
                 <xpath expr="//div[@name='button_box']/button[@name='%(payment.action_payment_token)d']" position="attributes">
-                    <attribute name="context">{'search_default_partner_id': id, 'search_default_token_type': 'credit', 'create': False, 'edit': False, 'default_token_type': 'credit'}</attribute>
+                    <attribute name="context">{'search_default_partner_id': id, 'search_default_token_type': 'credit', 'create': False, 'edit': False, 'default_token_type': 'credit', 'hide_actions': False}</attribute>
+                </xpath>
+                <xpath expr="//div[@name='button_box']/button[@name='%(payment.action_payment_token)d']" position="replace">
+                    <button type="action" class="oe_stat_button"
+                            icon="fa-credit-card-alt"
+                            name="%(payment_ebizcharge_crm.action_payment_token_credit_card_tree)d"
+                            context="{'search_default_partner_id': id, 'create': False, 'edit': True}"
+                            invisible="payment_token_count == 0">
+                        <div class="o_form_field o_stat_info">
+                            <span class="o_stat_value">
+                                <field name="payment_token_count" widget="statinfo" nolabel="1"/>
+                            </span>
+                            <span class="o_stat_text">Credit Cards</span>
+                        </div>
+                    </button>
                 </xpath>
             </field>
         </record>
@@ -42,7 +56,7 @@
                     <button type="action" class="oe_stat_button"
                             icon="fa-bank"
                             name="%(payment_ebizcharge_crm.action_payment_token_tree)d"
-                            context="{'search_default_partner_id': id, 'create': False, 'edit': False}"
+                            context="{'search_default_partner_id': id, 'create': False, 'edit': True, 'delete': False, 'hide_actions': False}"
                             invisible="payment_token_ach_count == 0 or not ach_functionality_hide">
                         <div class="o_form_field o_stat_info">
                             <span class="o_stat_value">
@@ -97,8 +111,8 @@
                                 <field name="avs_zip" readonly="1"/>
                                 <field name="card_exp_date"/>
                                 <field name="is_default" readonly="1" widget="boolean_toggle"/>
-                                <button aria-label="Delete row 1" class="fa fa-trash-o" name="delete_token" type="object"/>
                                 <button class="fa fa-pencil" name="open_edit" title="Edit" type="object"/>
+                                <button aria-label="Delete row 1" class="fa fa-trash-o" name="delete_token" type="object"/>
                             </list>
                         </field>
                     </page>
@@ -124,8 +138,8 @@
                                 <field name="routing" readonly="1"/>
                                 <field name="account_type"/>
                                 <field name="is_default" readonly="1" widget="boolean_toggle"/>
-                                <button aria-label="Delete row 1" class="fa fa-trash-o" name="delete_token" type="object"/>
                                 <button class="fa fa-pencil" name="open_edit" title="Edit" type="object"/>
+                                <button aria-label="Delete row 1" class="fa fa-trash-o" name="delete_token" type="object"/>
                             </list>
                         </field>
                     </page>

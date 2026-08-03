@@ -1,13 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-
-        <data noupdate="1">
-            <record id="my_record_10" model="upload.credit.notes">
-                <field name="add_filter">0</field>
-            </record>
-        </data>
-
         <record id="upload_credit_notes_form_view" model="ir.ui.view">
             <field name="name">Upload Credit Notes</field>
             <field name="model">upload.credit.notes</field>
@@ -18,7 +11,7 @@
                     <group>
                         <group>
                             <label class="text-nowrap" for="ebiz_profile_id" string="EBizCharge Merchant Account"/>
-                            <field name="ebiz_profile_id" nolabel="1" required="1"/>
+                            <field name="ebiz_profile_id" nolabel="1"/>
                         </group>
                         <group>
                             <button class="oe_highlight" name="create_default_records" string="Refresh" style="height: 25px;padding-top: 3px;" type="object"/>
@@ -27,14 +20,17 @@
                     </group>
                     <notebook colspan="3">
                         <page autofocus="autofocus" string="List">
-                            <field class="notebook_width" invisible="not invoice_lines" mode="list" name="invoice_lines" widget="upload_credit_notes_buttons">
+                            <field class="mt-3 notebook_width" invisible="not invoice_lines" mode="list" name="invoice_lines" widget="x2many_selection_actions">
                                 <list create="false" delete="false" limit="15" no_open="1">
+                                    <header>
+                                        <button class="btn-primary" name="upload_invoice" type="object" string="UPLOAD"/>
+                                        <button class="btn-primary" name="export_orders" type="object" string="EXPORT"/>
+                                    </header>
                                     <field name="id" column_invisible="1"/>
                                     <field column_invisible="1" name="currency_id"/>
                                     <field column_invisible="1" name="state"/>
                                     <field name="invoice" string="Number"/>
                                     <field name="partner_id" string="Customer"/>
-                                    <field name="customer_id" string="Customer ID"/>
                                     <field name="amount_untaxed" options="{'currency_field': 'currency_id'}" widget="monetary"/>
                                     <field name="amount_total_signed" options="{'currency_field': 'currency_id'}" string="Invoice Total" widget="monetary"/>
                                     <field name="amount_residual_signed" options="{'currency_field': 'currency_id'}" string="Balance Remaining" widget="monetary"/>
@@ -57,12 +53,15 @@
                             </div>
                         </page>
                         <page string="Logs">
-                            <field class="notebook_width" invisible="not logs_line" mode="list" name="logs_line" widget="upload_credit_notes_buttons">
-                                <list delete="false" limit="15" no_open="1" string="Transaction Lines">
+                            <field class="mt-3 notebook_width" invisible="not logs_line" mode="list" name="logs_line" widget="x2many_selection_actions">
+                                <list create="false" delete="false" limit="15" no_open="1" string="Transaction Lines">
+                                    <header>
+                                        <button class="btn-primary" name="export_logs" type="object" string="EXPORT"/>
+                                        <button class="btn-primary" name="clear_logs" type="object" string="CLEAR LOG"/>
+                                    </header>
                                     <field name="id" column_invisible="1"/>
                                     <field name="name"/>
                                     <field name="partner_id"/>
-                                    <field name="customer_id"/>
                                     <field column_invisible="1" name="currency_id"/>
                                     <field name="amount_untaxed" options="{'currency_field': 'currency_id'}" widget="monetary"/>
                                     <field name="amount_total_signed" options="{'currency_field': 'currency_id'}" widget="monetary"/>
@@ -90,12 +89,12 @@
             </field>
         </record>
 
-        <record id="action_upload_credit_notes_form" model="ir.actions.act_window">
+        <record id="action_upload_credit_notes_form" model="ir.actions.server">
             <field name="name">Upload Credit Notes</field>
-            <field name="res_model">upload.credit.notes</field>
-            <field name="res_id" ref="my_record_10"/>
-            <field name="target">inline</field>
-            <field name="view_mode">form</field>
+            <field name="type">ir.actions.server</field>
+            <field name="model_id" ref="payment_ebizcharge_crm.model_upload_credit_notes"/>
+            <field name="state">code</field>
+            <field name="code">action = model.action_open_upload_credit_notes()</field>
         </record>
 
         <menuitem action="action_upload_credit_notes_form" id="menu_ebiz_upload_credit_notes" name="Upload Credit Notes" parent="ebiz_upload_menu_main" sequence="5"/>

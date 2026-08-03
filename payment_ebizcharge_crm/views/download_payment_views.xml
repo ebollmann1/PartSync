@@ -22,16 +22,20 @@
                         </group>
                     </group>
                     <br/>
-                    <button class="oe_highlight" context="{'profile': ebiz_profile_id}" name="fetch_again" string="Download" type="object"/>
+                    <button class="oe_highlight" context="{'profile': ebiz_profile_id}" name="action_generate_line_ids" string="Download" type="object"/>
                     <field invisible="1" name="company_ids"/>
+                    <field invisible="1" name="name"/>
                     <field invisible="1" name="is_download_pressed"/>
                     <field invisible="1" name="is_download_pressed_fixed_auto_amount"/>
                     <br/><br/>
                     <notebook>
                         <page string="List">
                             <group/>
-                            <field class="notebook_width" invisible="not payment_lines" mode="list" name="payment_lines" readonly="0" widget="download_invoice_payment">
-                                <list limit="15" create="0" no_open="1" string="Payment Lines">
+                            <field class="notebook_width" invisible="not payment_lines" mode="list" name="payment_lines" readonly="0" widget="x2many_selection_actions">
+                                <list limit="15" delete="false" create="0" no_open="1" string="Payment Lines">
+                                    <header>
+                                        <button class="btn-primary" name="action_payment_import_into_odoo" type="object" string="IMPORT INTO ODOO"/>
+                                    </header>
                                     <field name="type_id" readonly="1"/>
                                     <field column_invisible="parent.is_download_pressed_fixed_auto_amount" name="invoice_number" readonly="1"/>
                                     <field name="partner_id" readonly="1"/>
@@ -78,8 +82,11 @@
                             </div>
                         </page>
                         <page name="download_invoice_credit_memos_log" string="Logs">
-                            <field class="notebook_width" invisible="not transaction_log_lines" mode="list" name="transaction_log_lines" widget="download_invoice_payment">
-                                <list limit="15" no_open="1" string="Logs">
+                            <field class="notebook_width" invisible="not transaction_log_lines" readonly="1" mode="list" name="transaction_log_lines" widget="x2many_selection_actions">
+                                <list limit="15" no_open="1" string="Logs" create="0" link="0" delete="0" edit="0">
+                                    <header>
+                                        <button class="btn-primary" name="clear_logs" type="object" string="CLEAR LOGS"/>
+                                    </header>
                                     <field name="type_id" readonly="1"/>
                                     <field name="invoice_number" readonly="1"/>
                                     <field name="partner_id" readonly="1"/>
@@ -111,14 +118,15 @@
             </field>
         </record>
 
-        <record id="action_ebiz_download_payments_form_updated" model="ir.actions.act_window">
+        <record id="action_ebiz_download_payments_form" model="ir.actions.server">
             <field name="name">Download Received Payments</field>
-            <field name="res_model">ebiz.download.payments</field>
-            <field name="target">inline</field>
-            <field name="view_mode">form,list</field>
+            <field name="type">ir.actions.server</field>
+            <field name="model_id" ref="payment_ebizcharge_crm.model_ebiz_download_payments"/>
+            <field name="state">code</field>
+            <field name="code">action = model.action_open_download_payments()</field>
         </record>
 
-        <menuitem action="action_ebiz_download_payments_form_updated" id="menu_ebiz_download_payments" name="Download Received Payments" parent="menu_download_ebiz" sequence="5"/>
+        <menuitem action="action_ebiz_download_payments_form" id="menu_ebiz_download_payments" name="Download Received Payments" parent="menu_download_ebiz" sequence="5"/>
 
         <record id="wizard_ebiz_download_message_view" model="ir.ui.view">
             <field name="name">download.payment.message</field>
@@ -141,7 +149,7 @@
                         </list>
                     </field>
                     <footer>
-                        <button class="oe_highlight" special="cancel" string="Ok" style="width:10%"/>
+                        <button class="oe_highlight" special="save" string="Ok" style="width:10%"/>
                     </footer>
                 </form>
             </field>
