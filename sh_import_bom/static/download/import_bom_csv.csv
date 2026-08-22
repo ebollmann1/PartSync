@@ -1,0 +1,7 @@
+Reference,Finished Product,Product Variant,Quantity,Unit of Measure,Material product,Material Product Quantity,Material Product Unit of Measure
+bom1,Customizable Desk (CONFIG),DESK0004,2,Units,CONS_25630,1,Units
+bom1,,,,,CONS_89957,2,Units
+bom1,,,,,CONS_0001,3,Units
+bom2,Customizable Desk (CONFIG),DESK0005,2,Units,CONS_25630,1,Units
+bom2,,,,,CONS_89957,2,Units
+bom2,,,,,CONS_0001,3,Units
