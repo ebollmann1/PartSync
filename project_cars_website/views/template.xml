@@ -73,19 +73,12 @@
                t-value="request.env['product.public.category'].sudo().search([('id','parent_of', assigned_public_categ_ids)])"/>
             <t t-set="assigned_public_categ_ids_parent" t-value="assigned_public_categ_ids"/>
 
-            <div class="category-container d-flex flex-wrap"
-                 style="margin-top: -10px;max-height: 175px;overflow-y: auto;flex-wrap: wrap;display: flex;"
-            >
+            <div class="category-container">
                 <t t-foreach="request.env['product.public.category'].search([('parent_id', '=', False)])" t-as="c" t-if="not category">
                     <t t-if="c in assigned_public_categ_ids">
-                        <div class="category-item" style="width: 300px;margin-bottom: 10px;">
-                            <a t-att-href="keep('/shop/category/' + slug(c), category=0)" class="text-decoration-none" style="color: #212529;">
-                                <span t-field="c.name" class="category-name" style="white-space: normal;
-                                    word-break: break-word;
-                                    display: inline-block;
-                                    width: 100%;
-                                    text-align: center;"
-                                />
+                        <div class="category-item">
+                            <a t-att-href="keep('/shop/category/' + slug(c), category=0)" class="text-decoration-none">
+                                <span t-field="c.name" class="category-name"/>
                             </a>
                         </div>
                     </t>
@@ -93,14 +86,9 @@
 
                 <t t-foreach="request.env['product.public.category'].search([('parent_id', '=', category.id)])" t-as="c" t-if="category">
                     <t t-if="c in assigned_public_categ_ids">
-                        <div class="category-item" style="width: 300px;margin-bottom: 10px;">
-                            <a t-att-href="keep('/shop/category/' + slug(c), category=0)" class="text-decoration-none" style="color: #212529;">
-                                <span t-field="c.name" class="category-name" style="white-space: normal;
-                                    word-break: break-word;
-                                    display: inline-block;
-                                    width: 100%;
-                                    text-align: center;"
-                                />
+                        <div class="category-item">
+                            <a t-att-href="keep('/shop/category/' + slug(c), category=0)" class="text-decoration-none">
+                                <span t-field="c.name" class="category-name"/>
                             </a>
                         </div>
                     </t>
@@ -853,150 +841,159 @@
         </xpath>
 
     </template>
+    <template id="product_fitment_filters" name="Product Fitment Filters">
+        <t t-set="partsync_product_filtering" t-value="products and products._get_ppf()"/>
+        <div class="collapse d-block filter-attributes" id="wsale_products_attributes_collapse">
+            <t t-set="url" t-value="'/shop'"/>
+            <ul class="nav flex-column" style="margin-left: 0px;">
+                <t t-if="partsync_product_filtering">
+                    <!-- ==========================Make========================-->
+                    <div t-if="products or select_fitment_make or fitment_data['make']" id="fitment_make">
+                        <div>
+                            <strong class="o_products_attributes_title text-uppercase d-block my-2">
+                                Make
+                            </strong>
+                        </div>
+                        <select id="fitment_make" class="custom-select css_attribute_select"
+                                name="fitment_make" style="width: 200px;border-radius: 5px;">
+                            <option value=""/>
+                            <t t-foreach="fitment_data['make']" t-as="make">
+                                <option t-att-value="make" t-att-selected="select_fitment_make == make">
+                                    <span t-esc="make"/>
+                                </option>
+                            </t>
+                        </select>
+                    </div>
+
+                    <!-- ==========================Model========================-->
+                    <div t-if="products or select_fitment_model or fitment_data['model']" id="fitment_model">
+                        <div>
+                            <strong class="o_products_attributes_title text-uppercase d-block my-2">
+                                Model
+                            </strong>
+                        </div>
+                        <select id="fitment_model"
+                                class="custom-select css_attribute_select" name="fitment_model"
+                                t-att-disabled="'disabled' if not select_fitment_make else None"
+                                style="width: 200px;border-radius: 5px;">
+                            <option value=""/>
+                            <t t-foreach="fitment_data['model']" t-as="model">
+                                <option t-att-value="model" t-att-selected="select_fitment_model == model">
+                                    <span t-esc="model"/>
+                                </option>
+                            </t>
+                        </select>
+                    </div>
+
+                    <!--==========================Year========================-->
+                    <div t-if="products or select_fitment_year or fitment_data['year']" id="fitment_year">
+                        <div>
+                            <strong class="o_products_attributes_title text-uppercase d-block my-2">
+                                Year
+                            </strong>
+                        </div>
+                        <select id="fitment_year" class="custom-select css_attribute_select"
+                                t-att-disabled="'disabled' if not select_fitment_make else None"
+                                name="fitment_year" style="width: 200px;border-radius: 5px;">
+                            <option value=""/>
+                            <t t-foreach="fitment_data['year']" t-as="year">
+                                <option t-att-value="year" t-att-selected="select_fitment_year == year">
+                                    <span t-esc="year"/>
+                                </option>
+                            </t>
+                        </select>
+                    </div>
+                    <!--==========================SubModel========================-->
+                    <div t-if="products or select_fitment_submodel or fitment_data['submodel']"
+                         id="fitment_submodel">
+                        <div>
+                            <strong class="o_products_attributes_title text-uppercase d-block my-2">
+                                Submodel
+                            </strong>
+                        </div>
+                        <select id="fitment_submodel"
+                                class="custom-select css_attribute_select" name="fitment_submodel"
+                                t-att-disabled="'disabled' if not (fitment_data['submodel'] and select_fitment_make) else None"
+                                style="width: 200px;border-radius: 5px;">
+                            <option value=""/>
+                            <t t-foreach="fitment_data['submodel']" t-as="submodel">
+                                <option t-att-value="submodel" t-att-selected="select_fitment_submodel == submodel">
+                                    <span t-esc="submodel"/>
+                                </option>
+                            </t>
+                        </select>
+                    </div>
+                    <!--==========================Wheel Configuration========================-->
+                    <div t-if="products or fitment_data['rear_wheels'] or select_fitment_rear_wheels"
+                         id="fitment_rear_wheels">
+                        <div>
+                            <strong class="o_products_attributes_title text-uppercase d-block my-2">
+                                Wheel Configuration
+                            </strong>
+                        </div>
+                        <select id="fitment_rear_wheels"
+                                class="custom-select css_attribute_select" name="fitment_rear_wheels"
+                                t-att-disabled="'disabled' if not (fitment_data['rear_wheels'] and select_fitment_make) else None"
+                                style="width: 200px;border-radius: 5px;">
+                            <option value=""/>
+                            <t t-foreach="fitment_data['rear_wheels']" t-as="rear_wheel">
+                                <option t-att-value="rear_wheel"
+                                        t-att-selected="select_fitment_rear_wheels == rear_wheel">
+                                    <span t-esc="rear_wheel"/>
+                                </option>
+                            </t>
+                        </select>
+                    </div>
+                    <!-- ==========================Vehicle Platform========================-->
+                    <div t-if="(products or fitment_data['vehicle_platform_id']) or select_vehicle_platform_id"
+                         id="fitment_vehicle_platform_ids">
+                        <div t-if="fitment_data['vehicle_platform_id']">
+                            <strong class="o_products_attributes_title text-uppercase d-block my-2">Vehicle Platform
+                            </strong>
+                        </div>
+                        <select t-if="fitment_data['vehicle_platform_id']" id="vehicle_platform_id"
+                                class="custom-select css_attribute_select" name="vehicle_platform_id"
+                                t-att-disabled="'disabled' if not (select_fitment_make or select_fitment_year) else None"
+                                style="width: 200px;border-radius: 5px;">
+                            <option value=""/>
+                            <t t-foreach="fitment_data['vehicle_platform_id']" t-as="vehicle_platform_id">
+                                <option t-att-value="vehicle_platform_id"
+                                        t-att-selected="select_vehicle_platform_id == vehicle_platform_id">
+                                    <span t-esc="vehicle_platform_id"/>
+                                </option>
+                            </t>
+                        </select>
+                    </div>
+                </t>
+            </ul>
+        </div>
+
+        <t t-set="partsync_eCommerce_filtering" t-value="products and products._get_pef()"/>
+        <div t-if="fitment_data or attrib_values"
+                class="accordion-item rounded-0 border-top-0 py-3">
+            <t t-if="partsync_eCommerce_filtering">
+                <a href="/shop"
+                   t-attf-class="btn btn-{{navClass}} custom-color-btn-primary d-flex align-items-center py-1"
+                   title="Clear Filters">
+                    <small class="mx-auto">
+                        <b>Clear Filters</b>
+                    </small>
+                    <i class="oi oi-close" role="presentation"/>
+                </a>
+            </t>
+        </div>
+    </template>
+
     <template id="website_sale_product_inherit" inherit_id="website_sale.products">
         <xpath expr="//aside[@id='products_grid_before']/div[hasclass('o_wsale_products_grid_before_rail')]/div[2]" position="replace">
-            <t t-set="partsync_product_filtering" t-value="products and products._get_ppf()"/>
-            <div class="collapse d-lg-block filter-attributes" id="wsale_products_attributes_collapse">
-                <t t-set="url" t-value="'/shop'"/>
-                <ul class="nav flex-column" style="margin-left: 0px;">
-                    <t t-if="partsync_product_filtering">
-                        <!-- ==========================Make========================-->
-                        <div t-if="products or select_fitment_make or fitment_data['make']" id="fitment_make">
-                            <div>
-                                <strong t-esc="make" class="o_products_attributes_title text-uppercase d-block my-2">
-                                    Make
-                                </strong>
-                            </div>
-                            <select id="fitment_make" class="custom-select css_attribute_select"
-                                    name="fitment_make" style="width: 200px;border-radius: 5px;">
-                                <option value=""/>
-                                <t t-foreach="fitment_data['make']" t-as="make">
-                                    <option t-att-value="make" t-att-selected="select_fitment_make == make">
-                                        <span t-esc="make"/>
-                                    </option>
-                                </t>
-                            </select>
-                        </div>
+            <t t-call="project_cars_website.product_fitment_filters"/>
+        </xpath>
+    </template>
 
-                        <!-- ==========================Model========================-->
-                        <div t-if="products or select_fitment_model or fitment_data['model']" id="fitment_model">
-                            <div>
-                                <strong t-esc="model" class="o_products_attributes_title text-uppercase d-block my-2">
-                                    Model
-                                </strong>
-                            </div>
-                            <select id="fitment_model"
-                                    class="custom-select css_attribute_select" name="fitment_model"
-                                    t-att-disabled="'disabled' if not select_fitment_make else None"
-                                    style="width: 200px;border-radius: 5px;">
-                                <option value=""/>
-                                <t t-foreach="fitment_data['model']" t-as="model">
-                                    <option t-att-value="model" t-att-selected="select_fitment_model == model">
-                                        <span t-esc="model"/>
-                                    </option>
-                                </t>
-                            </select>
-                        </div>
-
-                        <!--==========================Year========================-->
-                        <div t-if="products or select_fitment_year or fitment_data['year']" id="fitment_year">
-                            <div>
-                                <strong t-esc="Year" class="o_products_attributes_title text-uppercase d-block my-2">
-                                    Year
-                                </strong>
-                            </div>
-                            <select id="fitment_year" class="custom-select css_attribute_select"
-                                    t-att-disabled="'disabled' if not select_fitment_make else None"
-                                    name="fitment_year" style="width: 200px;border-radius: 5px;">
-                                <option value=""/>
-                                <t t-foreach="fitment_data['year']" t-as="year">
-                                    <option t-att-value="year" t-att-selected="select_fitment_year == year">
-                                        <span t-esc="year"/>
-                                    </option>
-                                </t>
-                            </select>
-                        </div>
-                        <!--==========================SubModel========================-->
-                        <div t-if="products or select_fitment_submodel or fitment_data['submodel']"
-                             id="fitment_submodel">
-                            <div>
-                                <strong t-esc="submodel"
-                                        class="o_products_attributes_title text-uppercase d-block my-2">
-                                    Submodel
-                                </strong>
-                            </div>
-                            <select id="fitment_submodel"
-                                    class="custom-select css_attribute_select" name="fitment_submodel"
-                                    t-att-disabled="'disabled' if not (fitment_data['submodel'] and select_fitment_make) else None"
-                                    style="width: 200px;border-radius: 5px;">
-                                <option value=""/>
-                                <t t-foreach="fitment_data['submodel']" t-as="submodel">
-                                    <option t-att-value="submodel" t-att-selected="select_fitment_submodel == submodel">
-                                        <span t-esc="submodel"/>
-                                    </option>
-                                </t>
-                            </select>
-                        </div>
-                        <!--==========================Wheel Configuration========================-->
-                        <div t-if="products or fitment_data['rear_wheels'] or select_fitment_rear_wheels"
-                             id="fitment_rear_wheels">
-                            <div>
-                                <strong t-esc="rear_wheels"
-                                        class="o_products_attributes_title text-uppercase d-block my-2">
-                                    Wheel Configuration
-                                </strong>
-                            </div>
-                            <select id="fitment_rear_wheels"
-                                    class="custom-select css_attribute_select" name="fitment_rear_wheels"
-                                    t-att-disabled="'disabled' if not (fitment_data['rear_wheels'] and select_fitment_make) else None"
-                                    style="width: 200px;border-radius: 5px;">
-                                <option value=""/>
-                                <t t-foreach="fitment_data['rear_wheels']" t-as="rear_wheel">
-                                    <option t-att-value="rear_wheel"
-                                            t-att-selected="select_fitment_rear_wheels == rear_wheel">
-                                        <span t-esc="rear_wheel"/>
-                                    </option>
-                                </t>
-                            </select>
-                        </div>
-                        <!-- ==========================Vehicle Platform========================-->
-                        <div t-if="(products or fitment_data['vehicle_platform_id']) or select_vehicle_platform_id"
-                             id="fitment_vehicle_platform_ids">
-                            <div t-if="fitment_data['vehicle_platform_id']">
-                                <strong t-esc="vehicle_platform_id"
-                                        class="o_products_attributes_title text-uppercase d-block my-2">Vehicle Platform
-                                </strong>
-                            </div>
-                            <select t-if="fitment_data['vehicle_platform_id']" id="vehicle_platform_id"
-                                    class="custom-select css_attribute_select" name="vehicle_platform_id"
-                                    t-att-disabled="'disabled' if not (select_fitment_make or select_fitment_year) else None"
-                                    style="width: 200px;border-radius: 5px;">
-                                <option value=""/>
-                                <t t-foreach="fitment_data['vehicle_platform_id']" t-as="vehicle_platform_id">
-                                    <option t-att-value="vehicle_platform_id"
-                                            t-att-selected="select_vehicle_platform_id == vehicle_platform_id">
-                                        <span t-esc="vehicle_platform_id"/>
-                                    </option>
-                                </t>
-                            </select>
-                        </div>
-                    </t>
-                </ul>
-            </div>
-
-            <t t-set="partsync_eCommerce_filtering" t-value="products and products._get_pef()"/>
-            <div t-if="fitment_data or attrib_values"
-                    class="accordion-item rounded-0 border-top-0 py-3">
-                <t t-if="partsync_eCommerce_filtering">
-                    <a href="/shop"
-                       t-attf-class="btn btn-{{navClass}} custom-color-btn-primary d-flex align-items-center py-1"
-                       title="Clear Filters">
-                        <small class="mx-auto">
-                            <b>Clear Filters</b>
-                        </small>
-                        <i class="oi oi-close" role="presentation"/>
-                    </a>
-                </t>
+    <template id="o_wsale_offcanvas_fitment_inherit" inherit_id="website_sale.o_wsale_offcanvas">
+        <xpath expr="//div[@id='o_wsale_offcanvas_content']/*[1]" position="before">
+            <div class="px-4 py-2 border-bottom">
+                <t t-call="project_cars_website.product_fitment_filters"/>
             </div>
         </xpath>
     </template>
