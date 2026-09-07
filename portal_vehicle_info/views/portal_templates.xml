@@ -181,4 +181,58 @@
         </xpath>
     </template>
 
+    <template id="product_attributes_vehicle_info_offcanvas" inherit_id="project_cars_website.o_wsale_offcanvas_fitment_inherit" name="Vehicle Information Offcanvas">
+        <xpath expr="//div[@id='wsale_products_attributes_collapse']/ul" position="before">
+            <t t-set="partsync_customer_vehicle" t-value="products and products._get_partsync_customer_vehicle()"/>
+            <t t-if="partsync_customer_vehicle">
+                <div t-if="request.env.user.partner_id.vehicle_info_ids" id="user_vehicle_info_offcanvas">
+                    <div>
+                        <strong class="btn btn-primary custom-color-btn-primary o_products_attributes_title text-uppercase d-block my-2"
+                                style="
+                                padding: 6px 6px;
+                                margin: 5px;
+                                border-radius: 5px;
+                                text-align: center;
+                                width: 155px;"
+                        > My Vehicles</strong>
+                    </div>
+                    <select id="user_vehicles_offcanvas" class="custom-select css_attribute_select"
+                            name="user_vehicles" style="width: 200px;border-radius: 5px;">
+                        <option value="">Make-Model-Year-Submodel</option>
+                        <t t-foreach="request.env.user.partner_id.vehicle_info_ids" t-as="vehicle_info">
+                            <option t-att-value="vehicle_info.id" t-att-selected="'selected' if vehicle_info.id == select_vehicle_info else None">
+                                <span t-esc="'%s-%s-%s-%s' %(vehicle_info.make or 'N/A',vehicle_info.model or 'N/A',vehicle_info.year or 'N/A',vehicle_info.submodel or 'N/A')"/>
+                            </option>
+                        </t>
+                        <input id="prev_user_vehicle_offcanvas" type="hidden" name="prev_user_vehicle" value=""/>
+                    </select>
+                </div>
+                <div t-if="not request.env.user.partner_id.vehicle_info_ids">
+                    <div>
+                        <t t-if="request.session.uid">
+                            <a href="/my/vehicle_info" class="btn btn-primary custom-color-btn-primary " style="
+                                padding: 6px 6px;
+                                margin: 5px;
+                                border-radius: 5px;
+                                text-align: center;
+                                width: 155px;">
+                                My Vehicles
+                            </a>
+                        </t>
+                        <t t-else="">
+                            <a class="btn btn-primary custom-color-btn-primary " href="/web/login" style="
+                                padding: 6px 6px;
+                                margin: 5px;
+                                border-radius: 5px;
+                                text-align: center;
+                                width: 155px;">
+                                My Vehicles
+                            </a>
+                        </t>
+                    </div>
+                </div>
+            </t>
+        </xpath>
+    </template>
+
 </odoo>
