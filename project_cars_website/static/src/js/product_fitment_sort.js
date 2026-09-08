@@ -30,7 +30,8 @@ patch(WebsiteSale.prototype, {
         // Get all fitment values
         const params = new URLSearchParams(window.location.search);
 
-        document.querySelectorAll('[name^="fitment_"], [name="vehicle_platform_id"]').forEach(select => {
+        const scope = ev.target.closest('#o_wsale_offcanvas, #products_grid_before') || document;
+        scope.querySelectorAll('[name^="fitment_"], [name="vehicle_platform_id"]').forEach(select => {
             if (select.value) {
                 params.set(select.name, select.value);
             } else {
