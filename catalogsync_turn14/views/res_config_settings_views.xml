@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_turn14" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.turn14</field>
+        <field name="model">res.config.settings</field>
+        <field name="priority" eval="90"/>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Turn 14" string="Turn 14" name="catalogsync_turn14" logo="/catalogsync_turn14/static/description/icon.png" groups="base.group_system">
+                    <block title="API Environment &amp; Authentication" name="turn14_api_block">
+                        <setting id="t14_environment_setting" company_dependent="1" help="Credentials and imports use the selected company.">
+                            <field name="company_id" readonly="1"/>
+                            <field name="t14_environment"/>
+                            <div class="mt-2">
+                                <button name="action_t14_test_connection" type="object" string="Test Connection" class="btn btn-secondary" icon="fa-plug"/>
+                            </div>
+                        </setting>
+
+                        <setting id="t14_creds_setting" string="API Credentials">
+                            <div class="row mt-2">
+                                <label for="t14_client_id" class="col-lg-4 o_light_label"/>
+                                <field name="t14_client_id" class="col-lg-8"/>
+                            </div>
+                            <div class="row mt-2">
+                                <label for="t14_client_secret" class="col-lg-4 o_light_label"/>
+                                <field name="t14_client_secret" password="True" class="col-lg-8"/>
+                            </div>
+                        </setting>
+                    </block>
+
+                    <block title="Catalog Synchronization" name="turn14_sync_block">
+                        <setting id="t14_sync_actions" help="Trigger asynchronous synchronization jobs via queue_job.">
+                            <div class="row mt-2">
+                                <label for="t14_brand_ids" class="col-lg-5 o_light_label"/>
+                                <field name="t14_brand_ids" class="col-lg-4" placeholder="18, 27, 45"/>
+                            </div>
+                            <div class="row mt-2">
+                                <label for="t14_product_batch_size" class="col-lg-5 o_light_label"/>
+                                <field name="t14_product_batch_size" class="col-lg-4"/>
+                            </div>
+                            <div class="row mt-2">
+                                <label for="t14_test_import" class="col-lg-5 o_light_label"/>
+                                <field name="t14_test_import" class="col-lg-4"/>
+                            </div>
+                            <div class="row mt-2">
+                                <label for="t14_default_category_id" class="col-lg-5 o_light_label"/>
+                                <field name="t14_default_category_id" class="col-lg-4"/>
+                            </div>
+                            <div class="row mt-2">
+                                <label for="t14_dropship_route_id" class="col-lg-5 o_light_label"/>
+                                <field name="t14_dropship_route_id" class="col-lg-4"/>
+                            </div>
+                            <div class="row mt-2">
+                                <label for="t14_air_freight_route_id" class="col-lg-5 o_light_label"/>
+                                <field name="t14_air_freight_route_id" class="col-lg-4"/>
+                            </div>
+                            <div class="row mt-2">
+                                <label for="t14_carb_route_id" class="col-lg-5 o_light_label"/>
+                                <field name="t14_carb_route_id" class="col-lg-4"/>
+                            </div>
+                            <div class="row mt-2">
+                                <label for="t14_ltl_freight_route_id" class="col-lg-5 o_light_label"/>
+                                <field name="t14_ltl_freight_route_id" class="col-lg-4"/>
+                            </div>
+                            <div class="row mt-2">
+                                <label for="t14_store_payload" class="col-lg-5 o_light_label"/>
+                                <field name="t14_store_payload" class="col-lg-4"/>
+                            </div>
+                            <div class="d-flex gap-2 mt-2">
+                                <button name="action_t14_import_brands" type="object" string="Configured Brands" class="btn btn-secondary"/>
+                                <button name="action_t14_import_locations" type="object" string="Locations" class="btn btn-secondary"/>
+                                <button name="action_t14_sync_catalog" type="object" string="Products" class="btn btn-primary"/>
+                            </div>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

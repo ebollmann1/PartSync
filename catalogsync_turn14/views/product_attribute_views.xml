@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="product_attribute_form_turn14" model="ir.ui.view">
+        <field name="name">product.attribute.form.turn14</field>
+        <field name="model">product.attribute</field>
+        <field name="inherit_id" ref="product.product_attribute_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='value_ids']/list/field[@name='name']" position="after">
+                <field name="t14_brand_id" optional="show" readonly="1"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
