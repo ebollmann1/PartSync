@@ -170,7 +170,6 @@ class Turn14Sync(models.AbstractModel):
             mail_auto_delete=True,
             skip_default_code=True,
             skip_t14_identity_check=True,
-            skip_cpm_update=True,
         )
         configured_brand_ids = company._get_t14_brand_ids()
         brand_id = str(brand_id)

@@ -232,7 +232,6 @@ class Turn14ProductImport(models.AbstractModel):
             mail_auto_delete=True,
             skip_default_code=True,
             skip_t14_identity_check=True,
-            skip_cpm_update=True,
         )
         Products = self.env["product.product"].with_context(active_test=False)
         counts = {"created": 0, "updated": 0, "skipped": 0}
@@ -381,7 +380,8 @@ class Turn14ProductImport(models.AbstractModel):
                     (item, values, attribute_values, brand, dimension_vals)
                 )
 
-        # ── Batch-create new product templates ─────────────────────────
+        # Create templates individually because installed product extensions
+        # expect one template while updating attribute values.
         if new_items:
             tmpl_vals_list = []
             for _item, values, attribute_values, _brand, _dim in new_items:
@@ -396,15 +396,17 @@ class Turn14ProductImport(models.AbstractModel):
                 ]
                 tmpl_vals_list.append(vals)
 
-            templates = self.env["product.template"].with_context(
+            template_model = self.env["product.template"].with_context(
                 tracking_disable=True,
                 mail_create_nosubscribe=True,
                 mail_create_nolog=True,
                 mail_notrack=True,
                 skip_default_code=True,
                 skip_t14_identity_check=True,
-                skip_cpm_update=True,
-            ).create(tmpl_vals_list)
+            )
+            templates = template_model.browse()
+            for template_values in tmpl_vals_list:
+                templates |= template_model.create(template_values)
 
             for idx, (item, _values, _av, brand, dimension_vals) in enumerate(new_items):
                 template = templates[idx]
