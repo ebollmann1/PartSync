@@ -106,6 +106,37 @@ class WebsiteSale(WebsiteSale):
         # Return sorted recordset
         return model_obj.browse(sorted(ids))
 
+    @route('/shop/fitment/options', type='jsonrpc', auth='public', website=True)
+    def mobile_fitment_options(self, selections=None):
+        """Return dependent fitment values without applying a shop filter yet."""
+        selections = selections or {}
+        fields = {
+            'fitment_model': 'model_id.name',
+            'fitment_year': 'year_id.name',
+            'fitment_submodel': 'submodel_id.name',
+            'fitment_rear_wheels': 'rear_wheels_id.name',
+            'vehicle_platform_id': 'vehicle_platform_id.name',
+        }
+        make = selections.get('fitment_make')
+        if not make:
+            return {key: [] for key in fields}
+
+        products = request.env['product.template'].search(
+            request.website.sale_product_domain()
+        )
+        fitments = products.mapped(
+            'product_variant_ids.customer_product_master_ids.fitment_ids'
+        ).filtered_domain([('make_id.name', '=', make)])
+        result = {}
+        for key, field in fields.items():
+            domain = []
+            for selected_key, selected_field in fields.items():
+                if selected_key != key and selections.get(selected_key):
+                    domain.append((selected_field, '=', selections[selected_key]))
+            records = fitments.filtered_domain(domain)
+            result[key] = sorted(set(records.mapped(field)) - {False}, reverse=key == 'fitment_year')
+        return result
+
     @route(
         [
             SHOP_PATH,

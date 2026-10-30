@@ -18,3 +18,151 @@
     font-weight: bold; /* Bold text */
     text-decoration: none; /* Remove underline */
 }
+
+/* PartSync "Shop Make, Model, Year" banner button */
+.partsync_shop_mmy_btn {
+    background-color: #2e7d32 !important;
+    border-color: #2e7d32 !important;
+    color: #ffffff !important;
+    border-radius: 25px !important;
+    font-weight: 600 !important;
+    font-size: 0.95rem !important;
+    padding: 0.5rem 1.25rem !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15) !important;
+    transition: background-color 0.2s ease-in-out, transform 0.1s ease-in-out !important;
+    letter-spacing: 0.2px !important;
+}
+
+.partsync_shop_mmy_btn:hover,
+.partsync_shop_mmy_btn:focus,
+.partsync_shop_mmy_btn:active {
+    background-color: #256628 !important;
+    border-color: #256628 !important;
+    color: #ffffff !important;
+}
+
+/* Responsive adjustments for toolbar on mobile and tablet to prevent cut-off */
+@media (max-width: 991.98px) {
+    .products_header {
+        flex-wrap: wrap !important;
+        row-gap: 0.5rem !important;
+        box-sizing: border-box !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow-x: visible !important;
+    }
+
+    .products_header .search_category {
+        font-size: 0.85rem !important;
+        padding: 0.35rem 0.65rem !important;
+        white-space: nowrap !important;
+        line-height: 1.2 !important;
+    }
+
+    .products_header .dropdown_sorty_by .btn {
+        font-size: 0.85rem !important;
+        padding: 0.35rem 0.65rem !important;
+        line-height: 1.2 !important;
+    }
+
+    .products_header button[data-bs-target="#o_wsale_offcanvas"] {
+        font-size: 0.85rem !important;
+        padding: 0.35rem 0.65rem !important;
+        line-height: 1.2 !important;
+        flex-shrink: 0 !important;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .products_header {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 0.25rem !important;
+        width: 100% !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+
+    .products_header .search_category {
+        font-size: 0.75rem !important;
+        padding: 0.3rem 0.45rem !important;
+        letter-spacing: -0.2px !important;
+    }
+
+    .products_header .dropdown_sorty_by .btn {
+        font-size: 0.75rem !important;
+        padding: 0.3rem 0.45rem !important;
+    }
+
+    .products_header button[data-bs-target="#o_wsale_offcanvas"] {
+        font-size: 0.75rem !important;
+        padding: 0.3rem 0.45rem !important;
+    }
+}
+
+@media (max-width: 420px) {
+    /* Hide the text 'Filters' on narrow screens so only the icon + active dot shows */
+    .products_header button[data-bs-target="#o_wsale_offcanvas"] small {
+        display: none !important;
+    }
+}
+
+/* Keep the PartSync mobile filter panel within the viewport, matching the
+ * spacing used by the Durflap shop filter. */
+@media (max-width: 991.98px) {
+    #o_wsale_offcanvas {
+        --bs-offcanvas-width: min(400px, 100vw);
+        max-width: 100vw !important;
+    }
+
+    #o_wsale_offcanvas .offcanvas-body,
+    #o_wsale_offcanvas #o_wsale_offcanvas_content {
+        overflow-x: hidden !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    #o_wsale_offcanvas .partsync-mobile-filter-panel {
+        box-sizing: border-box;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        overflow-x: hidden;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+
+    #o_wsale_offcanvas .partsync-mobile-filter-panel .filter-attributes,
+    #o_wsale_offcanvas .partsync-mobile-filter-panel .nav {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    /* All selects inside offcanvas must fit 100% width cleanly */
+    #o_wsale_offcanvas select,
+    #o_wsale_offcanvas .partsync-mobile-filter-panel select,
+    #o_wsale_offcanvas .css_attribute_select {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+    }
+
+    #o_wsale_offcanvas .partsync-mobile-filter-action {
+        box-sizing: border-box;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        white-space: normal;
+    }
+
+    #o_wsale_offcanvas .partsync-mobile-filter-panel .o_products_attributes_title {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+}
