@@ -1,22 +1,104 @@
 .category-container {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    /*justify-content: space-between !important;*/
+    display: grid !important;
+    grid-template-columns: repeat(5, 1fr) !important;
+    gap: 8px 10px !important;
+    width: 100% !important;
+    margin-top: 0.75rem !important;
+    margin-bottom: 1.25rem !important;
+    padding: 0 !important;
+    padding-right: 5px !important;
+    max-height: 152px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    scrollbar-width: thin;
+    scrollbar-color: #a5d6a7 #f1f1f1;
+}
+
+.category-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.category-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.category-container::-webkit-scrollbar-thumb {
+    background: #a5d6a7;
+    border-radius: 4px;
+}
+
+.category-container::-webkit-scrollbar-thumb:hover {
+    background: #2e7d32;
+}
+
+@media (max-width: 1199.98px) {
+    .category-container {
+        grid-template-columns: repeat(4, 1fr) !important;
+        gap: 8px !important;
+    }
+}
+
+@media (max-width: 991.98px) {
+    .category-container {
+        grid-template-columns: repeat(3, 1fr) !important;
+        gap: 8px !important;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .category-container {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 6px !important;
+    }
 }
 
 .category-item {
-    background-color: #6EA8FE; /* Blue background */
-    color: #212529; /* White text */
-    padding: 6px 6px; /* Padding for spacing */
-    margin: 5px; /* Margin between items */
-    border-radius: 5px; /* Rounded corners */
-    text-align: center; /* Center text */
-    transition: background-color 0.3s; /* Smooth transition for hover effect */
+    background-color: #2e7d32; /* Green background matching Shop Make, Model, Year button */
+    border: 1px solid #2e7d32;
+    border-radius: 5px; /* Clean rectangular button with rounded corners matching 5-column layout */
+    margin: 0 !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: stretch !important;
+    justify-content: center !important;
+    min-height: 40px;
+    box-sizing: border-box !important;
+    transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+}
+
+.category-item:hover,
+.category-item:focus {
+    background-color: #256628;
+    border-color: #256628;
+}
+
+.category-item a {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    width: 100% !important;
+    height: 100% !important;
+    padding: 6px 8px !important;
+    color: #ffffff !important;
+    font-weight: 600 !important;
+    font-size: 0.85rem !important;
+    text-decoration: none !important;
+    line-height: 1.2 !important;
+    box-sizing: border-box !important;
+}
+
+.category-item a:hover,
+.category-item a:focus {
+    color: #ffffff !important;
+    text-decoration: none !important;
 }
 
 .category-name {
-    font-weight: bold; /* Bold text */
-    text-decoration: none; /* Remove underline */
+    display: block;
+    word-break: normal;
+    overflow-wrap: break-word;
 }
 
 /* PartSync "Shop Make, Model, Year" banner button */
