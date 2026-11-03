@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_turn14_settings" model="ir.actions.act_window">
+        <field name="name">Turn 14 Configuration</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="context">{'module': 'catalogsync_turn14', 'bin_size': False}</field>
+    </record>
+
+    <menuitem id="menu_turn14_root"
+              name="Turn 14 Imports"
+              parent="stock.menu_stock_config_settings"
+              action="action_turn14_companies"
+              groups="base.group_system"
+              sequence="85"/>
+</odoo>

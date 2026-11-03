@@ -25,6 +25,19 @@
     </template>
 
     <template id="website_sale_products" name="template_name" inherit_id="website_sale.products">
+        <xpath expr="//div[hasclass('products_header')]" position="before">
+            <t t-set="partsync_product_filtering" t-value="products and products._get_ppf()"/>
+            <div t-if="partsync_product_filtering" class="partsync_mmy_header_btn_container d-block d-lg-none w-100 my-2">
+                <button type="button"
+                        class="btn partsync_shop_mmy_btn w-100 py-2 d-flex align-items-center justify-content-center text-white"
+                        data-bs-toggle="offcanvas"
+                        data-bs-target="#o_wsale_offcanvas"
+                        aria-controls="o_wsale_offcanvas">
+                    <!--<i class="oi oi-settings-adjust me-2" role="img"/>-->
+                    <span>Shop Make, Model, Year</span>
+                </button>
+            </div>
+        </xpath>
         <xpath expr="//t[@t-call='website_sale.pricelist_list']" position="before">
             <t t-call="project_cars_website.search_category_list"/>
         </xpath>
@@ -1470,7 +1483,7 @@
 
     <template id="o_wsale_offcanvas_fitment_inherit" inherit_id="website_sale.o_wsale_offcanvas">
         <xpath expr="//div[@id='o_wsale_offcanvas_content']/*[1]" position="before">
-            <div class="px-4 py-2 border-bottom">
+            <div class="partsync-mobile-filter-panel px-4 py-3 border-bottom">
                 <t t-set="partsync_product_filtering" t-value="products and products._get_ppf()"/>
                 <div class="collapse d-block filter-attributes" id="wsale_products_attributes_collapse">
                     <t t-set="url" t-value="'/shop'"/>
@@ -1597,12 +1610,17 @@
                     </ul>
                 </div>
 
+                <button t-if="partsync_product_filtering" type="button"
+                        t-attf-class="btn btn-{{navClass}} custom-color-btn-primary partsync-mobile-filter-action d-flex align-items-center justify-content-center w-100 py-1 mt-3 js_mobile_apply_filters">
+                    <small><b>Apply Filters</b></small>
+                </button>
+
                 <t t-set="partsync_eCommerce_filtering" t-value="products and products._get_pef()"/>
                 <div t-if="fitment_data or attrib_values"
                         class="accordion-item rounded-0 border-top-0 py-3">
                     <t t-if="partsync_eCommerce_filtering">
                         <a href="/shop"
-                           t-attf-class="btn btn-{{navClass}} custom-color-btn-primary d-flex align-items-center py-1"
+                           t-attf-class="btn btn-{{navClass}} custom-color-btn-primary partsync-mobile-filter-action d-flex align-items-center py-1 mt-3"
                            title="Clear Filters">
                             <small class="mx-auto">
                                 <b>Clear Filters</b>

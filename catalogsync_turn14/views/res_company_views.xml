@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_company_turn14_list" model="ir.ui.view">
+        <field name="name">res.company.turn14.list</field>
+        <field name="model">res.company</field>
+        <field name="arch" type="xml">
+            <list string="Turn 14 Companies" create="0" delete="0">
+                <field name="name"/>
+                <field name="t14_environment"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_company_turn14_form" model="ir.ui.view">
+        <field name="name">res.company.turn14.form</field>
+        <field name="model">res.company</field>
+        <field name="arch" type="xml">
+            <form string="Turn 14 Imports" create="0" delete="0">
+                <header>
+                    <button name="action_t14_import_brands" type="object" string="1. Import Configured Brands" class="btn-primary"/>
+                    <button name="action_t14_import_locations" type="object" string="2. Import Locations"/>
+                    <button name="action_t14_import_products" type="object" string="3. Import Products"/>
+                </header>
+                <sheet>
+                    <div class="oe_title"><h1><field name="name" readonly="1"/></h1></div>
+                    <group>
+                        <group string="API Connection">
+                            <field name="t14_environment"/>
+                            <button name="action_t14_test_connection" type="object" string="Test Connection" icon="fa-plug"/>
+                        </group>
+                        <group string="Credentials">
+                            <field name="t14_client_id" groups="base.group_system"/>
+                            <field name="t14_client_secret" password="True" groups="base.group_system"/>
+                            <field name="t14_brand_ids" placeholder="18, 27, 45"/>
+                            <field name="t14_product_batch_size"/>
+                            <field name="t14_test_import"/>
+                            <field name="t14_default_category_id"/>
+                            <field name="t14_dropship_route_id"/>
+                            <field name="t14_air_freight_route_id"/>
+                            <field name="t14_carb_route_id"/>
+                            <field name="t14_ltl_freight_route_id"/>
+                            <field name="t14_store_payload"/>
+                        </group>
+                    </group>
+                    <div class="text-muted">
+                        Product import first ensures each configured brand exists, then imports only that
+                        brand's products. Imports run in the background; check Queue Jobs for progress.
+                    </div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="action_turn14_companies" model="ir.actions.act_window">
+        <field name="name">Turn 14 Imports</field>
+        <field name="res_model">res.company</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('id', 'in', allowed_company_ids)]</field>
+        <field name="group_ids" eval="[(4, ref('base.group_system'))]"/>
+    </record>
+    <record id="action_turn14_companies_list" model="ir.actions.act_window.view">
+        <field name="sequence">1</field>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="view_company_turn14_list"/>
+        <field name="act_window_id" ref="action_turn14_companies"/>
+    </record>
+    <record id="action_turn14_companies_form" model="ir.actions.act_window.view">
+        <field name="sequence">2</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_company_turn14_form"/>
+        <field name="act_window_id" ref="action_turn14_companies"/>
+    </record>
+</odoo>
